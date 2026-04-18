@@ -1,0 +1,57 @@
+{
+    "version": 6,
+    "cmakeMinimumRequired": { "major": 3, "minor": 20, "patch": 0 },
+    "configurePresets": [
+        {
+            "name": "debug",
+            "displayName": "Debug",
+            "binaryDir": "${sourceDir}/build/debug",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "SYMFIND_BUILD_TESTS": "ON",
+                "SYMFIND_BUILD_EXAMPLES": "ON"
+            }
+        },
+        {
+            "name": "release",
+            "displayName": "Release",
+            "binaryDir": "${sourceDir}/build/release",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "SYMFIND_BUILD_TESTS": "OFF",
+                "SYMFIND_BUILD_EXAMPLES": "ON"
+            }
+        },
+        {
+            "name": "release-min",
+            "displayName": "Release (minimal, library only)",
+            "binaryDir": "${sourceDir}/build/release-min",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "MinSizeRel",
+                "SYMFIND_BUILD_TESTS": "OFF",
+                "SYMFIND_BUILD_EXAMPLES": "OFF"
+            }
+        }
+    ],
+    "buildPresets": [
+        {
+            "name": "debug",
+            "configurePreset": "debug"
+        },
+        {
+            "name": "release",
+            "configurePreset": "release"
+        },
+        {
+            "name": "release-min",
+            "configurePreset": "release-min"
+        }
+    ],
+    "testPresets": [
+        {
+            "name": "debug",
+            "configurePreset": "debug",
+            "output": { "outputOnFailure": true }
+        }
+    ]
+}
