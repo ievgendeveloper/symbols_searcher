@@ -2,7 +2,7 @@ add_executable(symfind_tests
     test_dsl_lexer.cpp
     test_dsl_parser.cpp
     test_dsl_matcher.cpp
-)
+ "test_function_finder.cpp")
 
 target_link_libraries(symfind_tests
     PRIVATE
