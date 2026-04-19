@@ -30,11 +30,13 @@ void FunctionFinder::from_exports(const PeModule& module,
 }
 
 void FunctionFinder::from_exception_directory(const PeModule& module,
-                                               std::vector<Function>& out) {
-    // TODO: Parse .pdata section — each RUNTIME_FUNCTION entry
-    //       gives us (begin_address, end_address, unwind_info).
-    //       This is the most reliable source for x64 functions.
-    spdlog::debug("Exception directory analysis not yet implemented");
+                                              std::vector<Function>& out)
+{
+    const auto& limits = module.exception_functions();
+    for (const auto& element: limits)
+    {
+        out.emplace_back(element.rva, element.size, false, std::string());
+    }
 }
 
 void FunctionFinder::from_call_targets(const PeModule& module,
