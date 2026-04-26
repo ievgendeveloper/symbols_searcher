@@ -119,9 +119,9 @@ TEST(DslMatcher, FindLdrpInitialize) {
 
     auto rule = DslParser::parse(R"(
         find function in "ntdll" where
-            called_by "LdrInitializeThunk"
-            not exported
-            take first
+            called_by "LdrInitializeThunk";
+            not exported;
+            take first;
     )");
     ASSERT_TRUE(rule.has_value());
 
@@ -137,9 +137,9 @@ TEST(DslMatcher, FindLdrpLoadDll) {
 
     auto rule = DslParser::parse(R"(
         find function in "ntdll" where
-            called_by "LdrLoadDll"
-            not exported
-            calls "RtlGetCurrentServiceSessionId"
+            called_by "LdrLoadDll";
+            not exported;
+            calls "RtlGetCurrentServiceSessionId";
     )");
     ASSERT_TRUE(rule.has_value());
 
@@ -155,14 +155,32 @@ TEST(DslMatcher, FindDecompressBufferGlobal) {
 
     auto rule = DslParser::parse(R"(
         find global in "ntdll" where
-            referenced_by "RtlDecompressBuffer"
-            take first
+            referenced_by "RtlDecompressBuffer";
+            take first;
     )");
     ASSERT_TRUE(rule.has_value());
 
     auto results = DslMatcher::match(db, *rule);
     ASSERT_EQ(results.size(), 1u);
     EXPECT_EQ(results[0].rva, 0xB000u);
+}
+
+TEST(DslMatcher, DiagnoseDecompressBuffer)
+{
+    auto db = MockAnalysisDb::build_ntdll_mock();
+
+    // is global in database ?
+    const auto* global = db.global_at(0xB000);
+    ASSERT_NE(global, nullptr) << "Global at 0xB000 not in DB";
+    EXPECT_EQ(global->refs.size(), 1u);
+
+    // is function present and could be found by name?
+    const auto* fn = db.function_by_name("RtlDecompressBuffer");
+    ASSERT_NE(fn, nullptr) << "RtlDecompressBuffer not found by name";
+    EXPECT_EQ(fn->rva, 0xA000u);
+
+    // does xref have correct from_func?
+    EXPECT_EQ(global->refs[0].from_func, fn->rva);
 }
 
 // ─── Test: no match when criteria don't fit ───
@@ -172,9 +190,9 @@ TEST(DslMatcher, NoMatchWhenExportedRequired) {
 
     auto rule = DslParser::parse(R"(
         find function in "ntdll" where
-            called_by "LdrInitializeThunk"
-            exported
-            calls "SomethingThatDoesNotExist"
+            called_by "LdrInitializeThunk";
+            exported;
+            calls "SomethingThatDoesNotExist";
     )");
     ASSERT_TRUE(rule.has_value());
 
@@ -191,11 +209,11 @@ TEST(DslMatcher, CalledByBlockMatch) {
     // LdrpLoadDll has has_loop=true and calls RtlGetCurrentServiceSessionId
     auto rule = DslParser::parse(R"(
         find function in "ntdll" where
-            exported
+            exported;
             called_by (
-                has_loop
-                not exported
-            )
+                has_loop;
+                not exported;
+            );
     )");
     ASSERT_TRUE(rule.has_value());
 
@@ -214,9 +232,9 @@ TEST(DslMatcher, NotCallsPredicate) {
     // RtlGetCurrentServiceSessionId — should match sub_7000 and sub_8000
     auto rule = DslParser::parse(R"(
         find function in "ntdll" where
-            called_by "LdrLoadDll"
-            not exported
-            not calls "RtlGetCurrentServiceSessionId"
+            called_by "LdrLoadDll";
+            not exported;
+            not calls "RtlGetCurrentServiceSessionId";
     )");
     ASSERT_TRUE(rule.has_value());
 
@@ -231,8 +249,8 @@ TEST(DslMatcher, TakeLimitsResults) {
 
     auto rule = DslParser::parse(R"(
         find function in "ntdll" where
-            not exported
-            take 2
+            not exported;
+            take 2;
     )");
     ASSERT_TRUE(rule.has_value());
 
@@ -247,8 +265,8 @@ TEST(DslMatcher, CallsCountPredicate) {
 
     auto rule = DslParser::parse(R"(
         find function in "ntdll" where
-            calls_count >= 5
-            not exported
+            calls_count >= 5;
+            not exported;
     )");
     ASSERT_TRUE(rule.has_value());
 
