@@ -3,26 +3,18 @@
 # ═══════════════════════════════════════════════════════
 
 # ─── Case 1: Find RtlDecompressBufferProcs ────────────
-# A global variable referenced inside RtlDecompressBuffer.
-# Only one global ref in this function, so take first.
-
 find global in "ntdll" where
-    referenced_by "RtlDecompressBuffer"
-    take first
+    referenced_by "RtlDecompressBuffer";
+    take first;
 
 # ─── Case 2: Find LdrpInitialize ─────────────────────
-# First unexported function called by LdrInitializeThunk.
-
 find function in "ntdll" where
-    called_by "LdrInitializeThunk"
-    not exported
-    take first
+    called_by "LdrInitializeThunk";
+    not exported;
+    take first;
 
 # ─── Case 3: Find LdrpLoadDll ────────────────────────
-# Unexported function called by LdrLoadDll that internally
-# calls RtlGetCurrentServiceSessionId.
-
 find function in "ntdll" where
-    called_by "LdrLoadDll"
-    not exported
-    calls "RtlGetCurrentServiceSessionId"
+    called_by "LdrLoadDll";
+    not exported;
+    calls "RtlGetCurrentServiceSessionId";
