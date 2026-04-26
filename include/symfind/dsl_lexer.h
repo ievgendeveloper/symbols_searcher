@@ -47,21 +47,34 @@ enum class TokenType {
     RParen,         ///< )
     LBracket,       ///< [
     RBracket,       ///< ]
+    Semi,           ///< ;
 
     // Special
     Eof,
     Error,
 };
 
+/// A lexer token.
+///
+/// This struct is intentionally a plain aggregate without
+/// default member initializers. Lemon places `Token` inside
+/// a C-style union (YYMINORTYPE), and in C++ a union member
+/// must be trivially default-constructible. Default member
+/// initializers would make the implicit default ctor
+/// "user-provided", which disqualifies it.
+///
+/// Always initialize Tokens with `{}` at the call site.
 struct Token {
-    TokenType   type = TokenType::Error;
-    std::string str_value;          ///< For String tokens
-    int64_t     int_value = 0;      ///< For Integer tokens
-    int         line = 0;
-    int         column = 0;
+    TokenType        type;
+    std::string_view str_value;
+    int64_t          int_value;
+    int              line;
+    int              column;
 };
 
 /// Tokenize a DSL script into a sequence of tokens.
+///
+/// Implementation is generated from `dsl/lexer.re` by re2c.
 class Lexer {
 public:
     explicit Lexer(std::string_view source);
@@ -69,18 +82,20 @@ public:
     /// Get the next token.
     [[nodiscard]] Token next();
 
-    /// Tokenize the entire input.
+    /// Tokenize the entire input (until EOF or first Error).
     [[nodiscard]] std::vector<Token> tokenize_all();
 
 private:
-    std::string_view source_;
+    std::string      storage_;       ///< owned NUL-terminated copy of input
+    std::string_view source_;        ///< view into storage_
     size_t pos_ = 0;
     int line_ = 1;
     int column_ = 1;
 
-    char peek() const;
-    char advance();
-    void skip_whitespace_and_comments();
+    // Internal helpers (kept for ABI compatibility — unused by re2c-generated next()).
+    char  peek() const;
+    char  advance();
+    void  skip_whitespace_and_comments();
     Token read_string();
     Token read_number();
     Token read_keyword_or_error();

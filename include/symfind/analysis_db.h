@@ -84,7 +84,7 @@ public:
     [[nodiscard]] const AnalyzedFunction* function_at(uint64_t rva) const;
 
     /// Look up a function by name (export name).
-    [[nodiscard]] const AnalyzedFunction* function_by_name(const std::string& name) const;
+    [[nodiscard]] const AnalyzedFunction* function_by_name(const std::string_view name) const;
 
     /// Look up a global by RVA.
     [[nodiscard]] const Global* global_at(uint64_t rva) const;
