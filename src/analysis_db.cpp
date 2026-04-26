@@ -65,9 +65,9 @@ namespace symfind
         return nullptr;
     }
 
-    const AnalyzedFunction* AnalysisDb::function_by_name(const std::string& name) const
+    const AnalyzedFunction* AnalysisDb::function_by_name(const std::string_view name) const
     {
-        auto it = func_by_name_.find(name);
+        auto it = func_by_name_.find(std::string(name));
         if (it != func_by_name_.end())
             return &functions_[it->second];
         return nullptr;
