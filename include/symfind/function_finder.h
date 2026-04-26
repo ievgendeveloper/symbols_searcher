@@ -44,7 +44,7 @@ namespace symfind
 
             /// Collect functions by scanning for call targets.
             static void from_call_targets(const PeModule& module,
-                                          const Disassembler& disasm,
+                                          const Disassembler& disassembler,
                                           std::vector<Function>& out);
 
         private:

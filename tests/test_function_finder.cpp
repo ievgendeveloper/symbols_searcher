@@ -12,3 +12,15 @@ TEST(FunctionFinder, Search_functions_by_exceptions_parsing_in_ntdll)
 
     EXPECT_GT(functions.size(), 10);
 }
+
+TEST(FunctionFinder, Search_functions_by_disassembling_code_sections)
+{
+    auto module = symfind::PeModule::from_file(R"(C:\Windows\System32\ntdll.dll)");
+    ASSERT_TRUE(module.has_value());
+
+    std::vector<symfind::Function> functions;
+    const symfind::Disassembler disassembler;
+    symfind::FunctionFinder::from_call_targets(*module, disassembler, functions);
+
+    EXPECT_GT(functions.size(), 10);
+}
