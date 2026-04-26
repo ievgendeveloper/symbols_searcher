@@ -1,6 +1,8 @@
 #include "symfind/pe_module.h"
 
+#include <algorithm>
 #include <filesystem>
+#include <fstream>
 #include <LIEF/PE.hpp>
 #include <spdlog/spdlog.h>
 #include <unordered_map>
@@ -9,10 +11,9 @@
 
 namespace symfind
 {
-
     struct PeModule::Impl
     {
-        std::string name;
+        std::string fullPath;
         uint64_t image_base = 0;
         std::vector<ExportEntry> exports;
         std::vector<Section> sections;
@@ -21,6 +22,46 @@ namespace symfind
         std::unordered_set<uint64_t> export_rvas;
         std::vector<FunctionBounds> m_exception_functions;
     };
+
+    static std::vector<uint8_t> map_image(LIEF::PE::Binary& pe, const std::string& path)
+    {
+        // Find the highest virtual offset to size the buffer
+        uint64_t imageSize = 0;
+        for (const auto& section : pe.sections())
+        {
+            const uint64_t end = section.virtual_address() + section.virtual_size();
+            imageSize = std::max(end, imageSize);
+        }
+
+        // Round up to section alignment to be safe
+        imageSize = LIEF::align(imageSize, pe.optional_header().section_alignment());
+
+        std::vector<uint8_t> buffer(imageSize, 0);
+
+        // Copy the PE Headers from file to memory buffer
+        {
+            std::ifstream file(path, std::ios::binary);
+            if (file)
+            {
+                const size_t hdr_size = pe.sizeof_headers();
+                file.read(reinterpret_cast<char*>(buffer.data()),
+                          static_cast<std::streamsize>(hdr_size));
+            }
+        }
+
+        // Copy each section's raw bytes to its virtual_address offset
+        for (const auto& section : pe.sections())
+        {
+            const auto content = section.content(); // returns std::span<const uint8_t>
+            const auto sizeOfCopy = std::min<size_t>(content.size(), section.virtual_size());
+            std::memcpy(buffer.data() + section.virtual_address(),
+                        content.data(),
+                        sizeOfCopy);
+            // Bytes beyond raw_size up to virtual_size remain zero - already initialized
+        }
+
+        return buffer;
+    }
 
     std::optional<PeModule> PeModule::from_file(const std::string& path)
     {
@@ -38,7 +79,7 @@ namespace symfind
 
         PeModule mod;
         mod.impl_ = std::make_shared<Impl>();
-        mod.impl_->name = pe->has_exports() ? pe->get_export()->name() : std::filesystem::path(path).filename().string();
+        mod.impl_->fullPath = std::filesystem::canonical(path).string();
         mod.impl_->image_base = pe->imagebase();
 
         // Collect exports
@@ -74,9 +115,9 @@ namespace symfind
             mod.impl_->sections.push_back(s);
         }
 
-        // Store raw content
+        // Store raw content (still not clear what to do with overlay, let's keep it for now as is)
         auto raw = pe->overlay();
-        // TODO: map sections properly for RVA-based access
+        mod.impl_->raw_data = map_image(*pe, mod.impl_->fullPath);
 
         for (const auto& exceptionFunction : pe->exception_functions())
         {
@@ -84,7 +125,7 @@ namespace symfind
         }
 
         SPDLOG_INFO("Loaded PE module '{}': base=0x{:X}, {} exports, {} sections",
-                    mod.impl_->name, mod.impl_->image_base,
+                    mod.impl_->fullPath, mod.impl_->image_base,
                     mod.impl_->exports.size(), mod.impl_->sections.size());
 
         return mod;
@@ -98,7 +139,7 @@ namespace symfind
         return std::nullopt;
     }
 
-    const std::string& PeModule::name() const { return impl_->name; }
+    const std::string& PeModule::name() const { return impl_->fullPath; }
     uint64_t PeModule::image_base() const { return impl_->image_base; }
     const std::vector<ExportEntry>& PeModule::exports() const { return impl_->exports; }
     const std::vector<Section>& PeModule::sections() const { return impl_->sections; }
@@ -118,8 +159,12 @@ namespace symfind
 
     std::span<const uint8_t> PeModule::read_at(uint64_t rva, size_t length) const
     {
-        // TODO: implement RVA-to-file-offset translation
-        return {};
+        if (rva + length > impl_->raw_data.size())
+        {
+            return {};
+        }
+
+        return {impl_->raw_data.data() + rva, length};
     }
 
     std::span<const uint8_t> PeModule::raw_image() const
