@@ -1,4 +1,5 @@
 #include "symfind/analysis_db.h"
+#include "symfind/function_finder.h"
 
 #include <spdlog/spdlog.h>
 #include <format>
@@ -14,31 +15,31 @@ namespace symfind
         Disassembler disasm;
 
         // Step 1: Find all functions
-        auto funcs = FunctionFinder::find(module, disasm);
+        const auto functions = FunctionFinder::find(module, disasm);
 
         // Step 2: For each function, disassemble its body and collect xrefs
-        for (const auto& func : funcs)
+        for (const auto& function : functions)
         {
             AnalyzedFunction af;
-            af.rva = func.rva;
-            af.size = func.size;
-            af.exported = func.exported;
-            af.name = func.exported
-                          ? func.export_name
-                          : std::format("sub_{:X}", func.rva);
+            af.rva = function.rva;
+            af.size = function.size;
+            af.exported = function.exported;
+            af.name = function.exported
+                          ? function.export_name
+                          : std::format("sub_{:X}", function.rva);
 
             // TODO: Disassemble function body, collect:
-            //   - callees (call targets)
             //   - data_refs (RIP-relative references to globals)
             //   - stack_frame_size (from sub rsp, N)
-            //   - call_count
             //   - has_loop (back-edge detection)
+
+            af.callees = collect_callees(module, disasm, af.rva, af.size);
+            af.call_count = static_cast<uint32_t>(af.callees.size());
 
             db.functions_.push_back(std::move(af));
         }
 
-        // Step 3: Build caller/callee relationships
-        // TODO: For each function's callees, add reverse caller links
+        link_callers(db.functions_);
 
         // Step 4: Collect globals from data references
         // TODO: Group all data_refs by target address -> Global entries
@@ -51,11 +52,20 @@ namespace symfind
         return db;
     }
 
-    const std::string& AnalysisDb::module_name() const { return module_name_; }
+    const std::string& AnalysisDb::module_name() const
+    {
+        return module_name_;
+    }
 
-    const std::vector<AnalyzedFunction>& AnalysisDb::functions() const { return functions_; }
+    const std::vector<AnalyzedFunction>& AnalysisDb::functions() const
+    {
+        return functions_;
+    }
 
-    const std::vector<Global>& AnalysisDb::globals() const { return globals_; }
+    const std::vector<Global>& AnalysisDb::globals() const
+    {
+        return globals_;
+    }
 
     const AnalyzedFunction* AnalysisDb::function_at(uint64_t rva) const
     {
@@ -69,7 +79,10 @@ namespace symfind
     {
         auto it = func_by_name_.find(std::string(name));
         if (it != func_by_name_.end())
+        {
             return &functions_[it->second];
+        }
+
         return nullptr;
     }
 
