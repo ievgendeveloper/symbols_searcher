@@ -1,5 +1,6 @@
 #pragma once
 
+#include "analysis_db.h"
 #include "symfind/pe_module.h"
 #include "symfind/disassembler.h"
 
@@ -8,7 +9,6 @@
 
 namespace symfind
 {
-
     /// A discovered function within the module.
     struct Function
     {
@@ -51,5 +51,16 @@ namespace symfind
             /// Merge and deduplicate results.
             static void deduplicate(std::vector<Function>& funcs);
     };
+
+    /// Disassembles a function body and collects all direct call targets.
+    /// Indirect calls (call rax, call [rip+...]) are skipped.
+    [[nodiscard]] std::vector<uint64_t> collect_callees(const PeModule& module,
+                                                        const Disassembler& disasm,
+                                                        uint64_t func_rva,
+                                                        uint64_t func_size);
+
+    /// For each function, populates its `callers` list based on the
+    /// `callees` of all other functions. Builds reverse links.
+    void link_callers(std::vector<symfind::AnalyzedFunction>& functions);
 
 } // namespace symfind
