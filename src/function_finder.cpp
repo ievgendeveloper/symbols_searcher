@@ -80,15 +80,98 @@ namespace symfind
 
     void FunctionFinder::deduplicate(std::vector<Function>& funcs)
     {
+        // skip too small libraries where nothing to regroup
+        if (funcs.size() < 2)
+        {
+            return;
+        }
+
         std::sort(funcs.begin(), funcs.end(),
                   [](const Function& a, const Function& b) { return a.rva < b.rva; });
 
-        auto last = std::unique(funcs.begin(), funcs.end(),
-                                [](const Function& a, const Function& b)
-                                {
-                                    return a.rva == b.rva;
-                                });
-        funcs.erase(last, funcs.end());
+        // Single pass: merge runs of equal-RVA entries into the leftmost one,
+        // taking the most informative field from each.
+        size_t write = 0;
+        for (size_t read = 1; read < funcs.size(); ++read)
+        {
+            if (funcs[read].rva == funcs[write].rva)
+            {
+                // Same function - merge data into the write slot.
+                if (funcs[write].size == 0)
+                {
+                    funcs[write].size = funcs[read].size;
+                }
+
+                if (!funcs[write].exported && funcs[read].exported)
+                {
+                    funcs[write].exported = true;
+                }
+
+                if (funcs[write].export_name.empty())
+                {
+                    funcs[write].export_name = std::move(funcs[read].export_name);
+                }
+            }
+            else
+            {
+                ++write;
+                if (write != read)
+                {
+                    funcs[write] = std::move(funcs[read]);
+                }
+            }
+        }
+
+        funcs.resize(write + 1);
+    }
+
+    std::vector<uint64_t> collect_callees(const PeModule& module, const Disassembler& disasm, uint64_t func_rva, uint64_t func_size)
+    {
+        std::vector<uint64_t> result;
+        if (func_size == 0)
+        {
+            return result;
+        }
+
+        const auto body = module.read_at(func_rva, func_size);
+        if (body.empty())
+        {
+            return result;
+        }
+
+        disasm.disassemble_cb(body, func_rva, [&](const Instruction& instruction) -> bool {
+            if (instruction.is_call && instruction.branch_target != 0)
+            {
+                result.push_back(instruction.branch_target);
+            }
+
+            return true;
+        });
+
+        return result;
+    }
+
+    void link_callers(std::vector<AnalyzedFunction>& functions)
+    {
+        // Build a temporary RVA -> index map for O(1) lookup
+        std::unordered_map<uint64_t, size_t> rva_to_index;
+        rva_to_index.reserve(functions.size());
+        for (size_t i = 0; i < functions.size(); ++i)
+        {
+            rva_to_index[functions[i].rva] = i;
+        }
+
+        for (size_t i = 0; i < functions.size(); ++i)
+        {
+            for (uint64_t callee_rva : functions[i].callees)
+            {
+                auto it = rva_to_index.find(callee_rva);
+                if (it != rva_to_index.end())
+                {
+                    functions[it->second].callers.push_back(functions[i].rva);
+                }
+            }
+        }
     }
 
 } // namespace symfind
