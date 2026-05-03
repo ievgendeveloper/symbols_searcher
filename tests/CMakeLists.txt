@@ -7,6 +7,7 @@ add_executable(symfind_tests
     test_pe_module.cpp
     test_globals.cpp
     test_stack_frame.cpp
+    test_loop_checker.cpp
 )
 
 target_link_libraries(symfind_tests        

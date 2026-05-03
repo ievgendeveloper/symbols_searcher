@@ -6,7 +6,6 @@
 
 namespace symfind
 {
-
     AnalysisDb AnalysisDb::analyze(const PeModule& module)
     {
         AnalysisDb db;
@@ -20,23 +19,26 @@ namespace symfind
         // Step 2: For each function, disassemble its body and collect xrefs
         for (const auto& function : functions)
         {
-            AnalyzedFunction af;
-            af.rva = function.rva;
-            af.size = function.size;
-            af.exported = function.exported;
-            af.name = function.exported
+            AnalyzedFunction analyzedFunction;
+            analyzedFunction.rva = function.rva;
+            analyzedFunction.size = function.size;
+            analyzedFunction.exported = function.exported;
+            analyzedFunction.name = function.exported
                           ? function.export_name
                           : std::format("sub_{:X}", function.rva);
 
-            // TODO: Disassemble function body, collect:
-            //   - has_loop (back-edge detection)
+            analyzedFunction.callees = 
+                collect_callees(module, disassembler, analyzedFunction.rva, analyzedFunction.size);
+            analyzedFunction.call_count = 
+                static_cast<uint32_t>(analyzedFunction.callees.size());
+            analyzedFunction.data_refs = 
+                collect_data_refs(module, disassembler, analyzedFunction.rva, analyzedFunction.size);
+            analyzedFunction.stack_frame_size = 
+                compute_stack_frame_size(module, disassembler, analyzedFunction.rva, analyzedFunction.size);
+            analyzedFunction.has_loop = 
+                detect_loops(module, disassembler, analyzedFunction.rva, analyzedFunction.size);
 
-            af.callees = collect_callees(module, disassembler, af.rva, af.size);
-            af.call_count = static_cast<uint32_t>(af.callees.size());
-            af.data_refs = collect_data_refs(module, disassembler, af.rva, af.size);
-            af.stack_frame_size = compute_stack_frame_size(module, disassembler, af.rva, af.size);
-
-            db.functions_.push_back(std::move(af));
+            db.functions_.push_back(std::move(analyzedFunction));
         }
 
         link_callers(db.functions_);

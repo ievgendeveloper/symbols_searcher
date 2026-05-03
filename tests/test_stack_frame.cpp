@@ -6,47 +6,47 @@
 
 TEST(ComputeStackFrameSize, RecognizesSubRspImm8)
 {
-    symfind::Disassembler d;
+    symfind::Disassembler disassembler;
     // sub rsp, 0x40 ; ret
     std::vector<uint8_t> body = {0x48, 0x83, 0xEC, 0x40, 0xC3};
-    uint32_t size = compute_stack_frame_size_in_body(d, body, 0x1000);
+    const auto size = compute_stack_frame_size_in_body(disassembler, body, 0x1000);
     EXPECT_EQ(size, 0x40u);
 }
 
 TEST(ComputeStackFrameSize, RecognizesSubRspImm32)
 {
-    symfind::Disassembler d;
+    symfind::Disassembler disassembler;
     // sub rsp, 0x100 ; ret
     std::vector<uint8_t> body = {0x48, 0x81, 0xEC, 0x00, 0x01, 0x00, 0x00, 0xC3};
-    uint32_t size = compute_stack_frame_size_in_body(d, body, 0x1000);
+    const auto size = compute_stack_frame_size_in_body(disassembler, body, 0x1000);
     EXPECT_EQ(size, 0x100u);
 }
 
 TEST(ComputeStackFrameSize, SkipsPushesBeforeSubRsp)
 {
-    symfind::Disassembler d;
+    symfind::Disassembler disassembler;
     // push rbx ; push rdi ; sub rsp, 0x20 ; ret
     std::vector<uint8_t> body = {0x53, 0x57, 0x48, 0x83, 0xEC, 0x20, 0xC3};
-    uint32_t size = compute_stack_frame_size_in_body(d, body, 0x1000);
+    const auto size = compute_stack_frame_size_in_body(disassembler, body, 0x1000);
     EXPECT_EQ(size, 0x20u);
 }
 
 TEST(ComputeStackFrameSize, ReturnsZeroForLeafFunction)
 {
-    symfind::Disassembler d;
+    symfind::Disassembler disassembler;
     // mov eax, 1 ; ret  (no stack manipulation)
     std::vector<uint8_t> body = {0xB8, 0x01, 0x00, 0x00, 0x00, 0xC3};
-    uint32_t size = compute_stack_frame_size_in_body(d, body, 0x1000);
+    const auto size = compute_stack_frame_size_in_body(disassembler, body, 0x1000);
     EXPECT_EQ(size, 0u);
 }
 
 TEST(ComputeStackFrameSize, IgnoresSubRspNotInPrologue)
 {
-    symfind::Disassembler d;
+    symfind::Disassembler disassembler;
     // Many NOPs followed by sub rsp - beyond our scan limit
     std::vector<uint8_t> body(20, 0x90); // 20 NOPs
     body.insert(body.end(), {0x48, 0x83, 0xEC, 0x40, 0xC3});
-    uint32_t size = compute_stack_frame_size_in_body(d, body, 0x1000);
+    const auto size = compute_stack_frame_size_in_body(disassembler, body, 0x1000);
     EXPECT_EQ(size, 0u); // sub rsp is past the prologue scan limit
 }
 
