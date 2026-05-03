@@ -71,27 +71,6 @@ See [`dsl/examples.sf`](dsl/examples.sf) for more examples.
 
 Comparison operators: `==`, `>`, `<`, `>=`, `<=`. Integer literals can be decimal or `0xHex`. Comments start with `#`.
 
-## Project structure
-
-```
-symfind/
-├── CMakeLists.txt           # FetchContent: spdlog, zydis, LIEF, googletest
-├── CMakePresets.json        # debug / release / release-min presets
-├── include/symfind/
-│   ├── symfind.h            # single public header
-│   ├── pe_module.h          # PE loader (wraps LIEF)
-│   ├── disassembler.h       # Zydis wrapper
-│   ├── function_finder.h    # function boundary discovery
-│   ├── analysis_db.h        # analysis results (functions, globals, xrefs)
-│   ├── dsl_lexer.h          # DSL tokenizer
-│   ├── dsl_parser.h         # DSL → AST
-│   └── dsl_matcher.h        # AST + AnalysisDb → results
-├── src/                     # implementations
-├── tests/                   # GoogleTest unit tests
-├── examples/                # example programs
-└── dsl/examples.sf          # sample DSL rules
-```
-
 ## Current status
 
 This is **early development**. The DSL layer (lexer + parser + matcher) is implemented and tested against mock data. The analysis layer is stubbed with `TODO`s.
@@ -104,13 +83,13 @@ This is **early development**. The DSL layer (lexer + parser + matcher) is imple
 - **PE module loader** — loads modules via LIEF, exposes exports and sections
 - **Function discovery via `.pdata`** — parses the exception directory (`RUNTIME_FUNCTION` entries) to get precise function boundaries (start + size) for all functions including unexported ones
 - **Zydis disassembler integration** — instruction decoding with branch target and RIP-relative resolution
+- Function discovery from call-target scanning (fallback for functions missing from `.pdata`)
+- Global variable discovery and cross-reference collection
+- RVA-to-file-offset translation in `PeModule::read_at`
 
 ### Not yet implemented
 
-- Function discovery from call-target scanning (fallback for functions missing from `.pdata`)
 - Full analysis pipeline: collecting callees/callers per function, detecting loops, computing `stack_frame_size`
-- Global variable discovery and cross-reference collection
-- RVA-to-file-offset translation in `PeModule::read_at`
 - `PeModule::from_memory` (loading a module from a raw byte buffer)
 
 ## Adding a new DSL predicate

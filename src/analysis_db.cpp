@@ -12,10 +12,10 @@ namespace symfind
         AnalysisDb db;
         db.module_name_ = module.name();
 
-        Disassembler disasm;
+        const Disassembler disassembler;
 
         // Step 1: Find all functions
-        const auto functions = FunctionFinder::find(module, disasm);
+        const auto functions = FunctionFinder::find(module, disassembler);
 
         // Step 2: For each function, disassemble its body and collect xrefs
         for (const auto& function : functions)
@@ -29,21 +29,18 @@ namespace symfind
                           : std::format("sub_{:X}", function.rva);
 
             // TODO: Disassemble function body, collect:
-            //   - data_refs (RIP-relative references to globals)
             //   - stack_frame_size (from sub rsp, N)
             //   - has_loop (back-edge detection)
 
-            af.callees = collect_callees(module, disasm, af.rva, af.size);
+            af.callees = collect_callees(module, disassembler, af.rva, af.size);
             af.call_count = static_cast<uint32_t>(af.callees.size());
+            af.data_refs = collect_data_refs(module, disassembler, af.rva, af.size);
 
             db.functions_.push_back(std::move(af));
         }
 
         link_callers(db.functions_);
-
-        // Step 4: Collect globals from data references
-        // TODO: Group all data_refs by target address -> Global entries
-
+        db.globals_ = collect_globals(db.functions_);
         db.build_indices();
 
         spdlog::info("Analysis complete for '{}': {} functions, {} globals",
