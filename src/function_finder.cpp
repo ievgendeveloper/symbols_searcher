@@ -2,6 +2,7 @@
 
 #include <spdlog/spdlog.h>
 #include <algorithm>
+#include <map>
 
 namespace symfind
 {
@@ -53,7 +54,7 @@ namespace symfind
     {
         size_t numberOfFoundedFunctions = 0;
         const auto& sections = module.sections();
-        for (const auto& section: sections)
+        for (const auto& section : sections)
         {
             if (!section.executable)
             {
@@ -63,7 +64,7 @@ namespace symfind
             auto sectionData = module.read_at(section.virtual_address, section.virtual_size);
             const auto instructions =
                 disassembler.disassemble(sectionData, section.virtual_address);
-            for (const auto& instruction: instructions)
+            for (const auto& instruction : instructions)
             {
                 if (!instruction.is_call || !instruction.branch_target)
                 {
@@ -139,7 +140,8 @@ namespace symfind
             return result;
         }
 
-        disasm.disassemble_cb(body, func_rva, [&](const Instruction& instruction) -> bool {
+        disasm.disassemble_cb(body, func_rva, [&](const Instruction& instruction) -> bool
+        {
             if (instruction.is_call && instruction.branch_target != 0)
             {
                 result.push_back(instruction.branch_target);
@@ -172,6 +174,109 @@ namespace symfind
                 }
             }
         }
+    }
+
+    namespace
+    {
+        bool is_data_section(const PeModule& module, uint64_t rva)
+        {
+            for (const auto& sec : module.sections())
+            {
+                if (rva >= sec.virtual_address &&
+                    rva < sec.virtual_address + sec.virtual_size)
+                {
+                    return !sec.executable; // data section = non-executable
+                }
+            }
+
+            return false; // outside any section
+        }
+    } // namespace
+
+    std::vector<Xref> collect_data_refs(const PeModule& module, const Disassembler& disassembler,
+                                        uint64_t func_rva, uint64_t func_size)
+    {
+        std::vector<Xref> references;
+        if (func_size == 0)
+        {
+            return references;
+        }
+
+        const auto body = module.read_at(func_rva, func_size);
+        if (body.empty())
+        {
+            return references;
+        }
+
+        disassembler.disassemble_cb(body, func_rva, [&](const Instruction& instruction) -> bool
+        {
+            if (instruction.mem_absolute == 0)
+            {
+                return true; // not RIP-relative
+            }
+
+            if (!is_data_section(module, instruction.mem_absolute))
+            {
+                return true;
+            }
+
+            Xref crossReference{};
+            crossReference.from_rva = instruction.address;
+            crossReference.to_rva = instruction.mem_absolute;
+            crossReference.from_func = func_rva;
+
+            if (instruction.is_lea)
+            {
+                crossReference.type = XrefType::DataRef;
+            }
+            else if (instruction.is_mem_read)
+            {
+                crossReference.type = XrefType::DataRead;
+            }
+            else if (instruction.is_mem_write)
+            {
+                crossReference.type = XrefType::DataWrite;
+            }
+            else
+            {
+                return true; // some other RIP-relative we don't handle
+            }
+
+            references.push_back(crossReference);
+            return true;
+        });
+
+        return references;
+    }
+
+    std::vector<Global> collect_globals(const std::vector<AnalyzedFunction>& functions)
+    {
+        // Group xrefs by their target RVA (the address of the global).
+        // Using a map keeps the result sorted by RVA, which is nice for
+        // determinism and binary search if we need it later.
+        std::map<uint64_t, std::vector<Xref>> by_target;
+
+        for (const auto& func : functions)
+        {
+            for (const auto& ref : func.data_refs)
+            {
+                by_target[ref.to_rva].push_back(ref);
+            }
+        }
+
+        // Materialize into Global structs
+        std::vector<Global> globals;
+        globals.reserve(by_target.size());
+        for (auto& [rva, refs] : by_target)
+        {
+            Global g{};
+            g.rva = rva;
+            g.size = 0; // unknown - we don't infer global sizes yet
+            g.refs = std::move(refs);
+            globals.push_back(std::move(g));
+        }
+
+        return globals;
     }
 
 } // namespace symfind

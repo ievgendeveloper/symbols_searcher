@@ -58,3 +58,35 @@ TEST(AnalysisIntegration, FindLdrpInitializeInRealNtdll)
     // The match should be inside .text
     spdlog::info("Found LdrpInitialize candidate at RVA 0x{:X}", results[0].rva);
 }
+
+TEST(CollectDataRefs, FindsLeaInRtlDecompressBuffer)
+{
+    const auto module = symfind::PeModule::from_file(R"(C:\Windows\System32\ntdll.dll)");
+    ASSERT_TRUE(module.has_value());
+
+    const auto rtl_decompress = module->export_rva("RtlDecompressBuffer");
+    ASSERT_TRUE(rtl_decompress.has_value());
+
+    // We need the function size - easiest is to run from_exception_directory
+    std::vector<symfind::Function> functions;
+    symfind::FunctionFinder::from_exception_directory(*module, functions);
+
+    auto it = std::find_if(functions.begin(), functions.end(),
+                           [&](const symfind::Function& f)
+                           {
+                               return f.rva == *rtl_decompress;
+                           });
+    ASSERT_NE(it, functions.end());
+
+    const symfind::Disassembler disassembler;
+    const auto refs = symfind::collect_data_refs(*module, disassembler, it->rva, it->size);
+
+    // RtlDecompressBuffer has at least one DataRef (lea rdi, RtlDecompressBufferProcs)
+    ASSERT_GE(refs.size(), 1u);
+    bool has_lea = std::any_of(refs.begin(), refs.end(),
+                               [](const symfind::Xref& x)
+                               {
+                                   return x.type == symfind::XrefType::DataRef;
+                               });
+    EXPECT_TRUE(has_lea);
+}
