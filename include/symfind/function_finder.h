@@ -108,4 +108,30 @@ namespace symfind
         std::span<const uint8_t> body,
         uint64_t functionRva);
 
+    /**
+     * @brief Find potential loop construction inside function's body
+     * @param disassembler - disassembler to analyze function's code 
+     * @param body - the code of function needs to be analyzed
+     * @param functionRva - relative virtual address of function
+     * @param functionSize - size in bytes of function's body
+     * @return true if loop was found or false otherwise
+     */
+    [[nodiscard]] bool detect_loops_in_body(const Disassembler& disassembler,
+                                            std::span<const uint8_t> body,
+                                            uint64_t functionRva,
+                                            uint64_t functionSize);
+
+    /**
+     * @brief Find potential loop construction inside module's function when we know it's location
+     * @param module - pe file loaded from disk (or memory) - dll or exe (.sys file maybe)
+     * @param disassembler - disassembler to analyze function's code 
+     * @param functionRva - relative virtual address of function
+     * @param functionSize - size in bytes of function's body
+     * @return 
+     */
+    [[nodiscard]] bool detect_loops(const PeModule& module,
+                                    const Disassembler& disassembler,
+                                    uint64_t functionRva,
+                                    uint64_t functionSize);
+
 } // namespace symfind
