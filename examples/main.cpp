@@ -3,10 +3,12 @@
 
 #include <cstdio>
 
-int main(int argc, char* argv[]) {
+int main(int argc, char* argv[])
+{
     spdlog::set_level(spdlog::level::info);
 
-    if (argc < 2) {
+    if (argc < 2)
+    {
         std::printf("Usage: %s <path_to_ntdll.dll>\n", argv[0]);
         std::printf("\nExample DSL rules this tool can process:\n\n");
 
@@ -35,7 +37,8 @@ int main(int argc, char* argv[]) {
     // Step 1: Load the PE module
     spdlog::info("Loading PE module: {}", pe_path);
     auto module = symfind::PeModule::from_file(pe_path);
-    if (!module) {
+    if (!module)
+    {
         spdlog::error("Failed to load PE module");
         return 1;
     }
@@ -55,7 +58,8 @@ int main(int argc, char* argv[]) {
     // Step 4: Parse the rule
     spdlog::info("Parsing DSL rule...");
     auto rule = symfind::dsl::DslParser::parse(dsl_rule);
-    if (!rule) {
+    if (!rule)
+    {
         spdlog::error("Failed to parse DSL rule");
         return 1;
     }
@@ -64,10 +68,14 @@ int main(int argc, char* argv[]) {
     spdlog::info("Searching for matching symbols...");
     auto results = symfind::dsl::DslMatcher::match(db, *rule);
 
-    if (results.empty()) {
+    if (results.empty())
+    {
         spdlog::warn("No matches found");
-    } else {
-        for (const auto& result : results) {
+    }
+    else
+    {
+        for (const auto& result : results)
+        {
             std::printf("FOUND: %s at RVA 0x%llX\n",
                         result.name.c_str(),
                         static_cast<unsigned long long>(result.rva));

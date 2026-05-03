@@ -310,6 +310,55 @@ namespace symfind
         return frameSize;
     }
 
+    bool detect_loops_in_body(const Disassembler& disassembler, std::span<const uint8_t> body,
+                              uint64_t functionRva, uint64_t functionSize)
+    {
+        if (body.empty())
+        {
+            return false;
+        }
+
+        const auto func_end = functionRva + functionSize;
+        bool hasLoop = false;
+
+        disassembler.disassemble_cb(body, functionRva, [&](const Instruction& instruction) -> bool
+        {
+            if (!instruction.is_jump)
+            {
+                return true; // not a branch
+            }
+
+            if (instruction.branch_target == 0)
+            {
+                return true; // indirect jump
+            }
+
+            // Backward jump within the function body = back-edge
+            if (instruction.branch_target < instruction.address &&
+                instruction.branch_target >= functionRva &&
+                instruction.branch_target < func_end)
+            {
+                hasLoop = true;
+                return false; // found one, stop scanning
+            }
+            return true;
+        });
+
+        return hasLoop;
+    }
+
+    bool detect_loops(const PeModule& module, const Disassembler& disassembler,
+                      uint64_t functionRva, uint64_t functionSize)
+    {
+        if (functionSize == 0)
+        {
+            return false;
+        }
+
+        const auto body = module.read_at(functionRva, functionSize);
+        return detect_loops_in_body(disassembler, body, functionRva, functionSize);
+    }
+
     uint32_t compute_stack_frame_size(const PeModule& module, const Disassembler& disassembler,
                                       uint64_t functionRva, uint64_t functionSize)
     {
