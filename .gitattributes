@@ -1,0 +1,16 @@
+* text=auto eol=lf
+
+# don't modify the binaries
+*.png  binary
+*.jpg  binary
+*.pdf  binary
+*.zip  binary
+*.exe  binary
+*.dll  binary
+*.lib  binary
+*.obj  binary
+
+# some specific scripts for Windows should stay with CRLF
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+*.ps1  text eol=crlf

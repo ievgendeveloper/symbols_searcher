@@ -8,8 +8,13 @@
 #include <optional>
 
 namespace symfind {
+    struct FunctionBounds
+    {
+            uint64_t rva;
+            uint64_t size;
+    };
 
-/// Represents an exported symbol from a PE module.
+    /// Represents an exported symbol from a PE module.
 struct ExportEntry {
     std::string name;
     uint64_t    rva = 0;       ///< Relative virtual address
@@ -62,6 +67,12 @@ public:
 
     /// Get the raw mapped image bytes.
     [[nodiscard]] std::span<const uint8_t> raw_image() const;
+
+    /**
+     * @brief Get the full enumeration of RVA of function addresses and the size of functions
+     * @return the vector of structs with rva of the beginning and size of function
+     */
+    [[nodiscard]] const std::vector<FunctionBounds>& exception_functions() const;
 
 private:
     struct Impl;

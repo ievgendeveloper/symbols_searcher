@@ -3,10 +3,11 @@
 
 using namespace symfind::dsl;
 
-TEST(DslParser, MinimalRule) {
+TEST(DslParser, MinimalRule)
+{
     auto rule = DslParser::parse(R"(
         find function in "ntdll" where
-            calls "NtQuerySystemInformation"
+            calls "NtQuerySystemInformation";
     )");
 
     ASSERT_TRUE(rule.has_value());
@@ -17,11 +18,12 @@ TEST(DslParser, MinimalRule) {
     EXPECT_EQ(rule->predicates[0]->str_value, "NtQuerySystemInformation");
 }
 
-TEST(DslParser, FindGlobal) {
+TEST(DslParser, FindGlobal)
+{
     auto rule = DslParser::parse(R"(
         find global in "ntdll" where
-            referenced_by "RtlDecompressBuffer"
-            take first
+            referenced_by "RtlDecompressBuffer";
+            take first;
     )");
 
     ASSERT_TRUE(rule.has_value());
@@ -33,47 +35,56 @@ TEST(DslParser, FindGlobal) {
     EXPECT_EQ(rule->predicates[1]->int_value, 1);
 }
 
-TEST(DslParser, NotExported) {
+TEST(DslParser, NotExported)
+{
     auto rule = DslParser::parse(R"(
         find function in "ntdll" where
-            called_by "LdrInitializeThunk"
-            not exported
-            take first
+            called_by "LdrInitializeThunk";
+            not exported;
+            take first;
     )");
-
     ASSERT_TRUE(rule.has_value());
     ASSERT_EQ(rule->predicates.size(), 3u);
+
     EXPECT_EQ(rule->predicates[0]->kind, PredKind::CalledBy);
     EXPECT_EQ(rule->predicates[0]->str_value, "LdrInitializeThunk");
-    EXPECT_EQ(rule->predicates[1]->kind, PredKind::NotExported);
+
+    // `not exported` is now parsed as Not(Exported) - composition of two
+    // universal rules instead of a dedicated NotExported predicate.
+    EXPECT_EQ(rule->predicates[1]->kind, PredKind::Not);
+    ASSERT_NE(rule->predicates[1]->child, nullptr);
+    EXPECT_EQ(rule->predicates[1]->child->kind, PredKind::Exported);
+
     EXPECT_EQ(rule->predicates[2]->kind, PredKind::Take);
 }
 
-TEST(DslParser, TwoLevelSearch) {
+TEST(DslParser, TwoLevelSearch)
+{
     auto rule = DslParser::parse(R"(
         find function in "ntdll" where
-            called_by "LdrLoadDll"
-            not exported
-            calls "RtlGetCurrentServiceSessionId"
+            called_by "LdrLoadDll";
+            not exported;
+            calls "RtlGetCurrentServiceSessionId";
     )");
 
     ASSERT_TRUE(rule.has_value());
     ASSERT_EQ(rule->predicates.size(), 3u);
     EXPECT_EQ(rule->predicates[0]->kind, PredKind::CalledBy);
     EXPECT_EQ(rule->predicates[0]->str_value, "LdrLoadDll");
-    EXPECT_EQ(rule->predicates[1]->kind, PredKind::NotExported);
+    EXPECT_EQ(rule->predicates[1]->kind, PredKind::Not);
     EXPECT_EQ(rule->predicates[2]->kind, PredKind::Calls);
     EXPECT_EQ(rule->predicates[2]->str_value, "RtlGetCurrentServiceSessionId");
 }
 
-TEST(DslParser, CalledByBlock) {
+TEST(DslParser, CalledByBlock)
+{
     auto rule = DslParser::parse(R"(
         find function in "ntdll" where
-            not exported
+            not exported;
             called_by (
-                calls "NtQuerySystemInformation"
-                has_loop
-            )
+                calls "NtQuerySystemInformation";
+                has_loop;
+            );
     )");
 
     ASSERT_TRUE(rule.has_value());
@@ -84,12 +95,13 @@ TEST(DslParser, CalledByBlock) {
     EXPECT_EQ(rule->predicates[1]->children[1]->kind, PredKind::HasLoop);
 }
 
-TEST(DslParser, NumericPredicates) {
+TEST(DslParser, NumericPredicates)
+{
     auto rule = DslParser::parse(R"(
         find function in "ntdll" where
-            calls_count >= 3
-            stack_frame_size >= 0x80
-            xrefs count == 1
+            calls_count >= 3;
+            stack_frame_size >= 0x80;
+            xrefs count == 1;
     )");
 
     ASSERT_TRUE(rule.has_value());
@@ -108,10 +120,11 @@ TEST(DslParser, NumericPredicates) {
     EXPECT_EQ(rule->predicates[2]->int_value, 1);
 }
 
-TEST(DslParser, NotPredicate) {
+TEST(DslParser, NotPredicate)
+{
     auto rule = DslParser::parse(R"(
         find function in "ntdll" where
-            not calls "RtlFreeHeap"
+            not calls "RtlFreeHeap";
     )");
 
     ASSERT_TRUE(rule.has_value());
@@ -122,21 +135,23 @@ TEST(DslParser, NotPredicate) {
     EXPECT_EQ(rule->predicates[0]->child->str_value, "RtlFreeHeap");
 }
 
-TEST(DslParser, CommentsIgnored) {
+TEST(DslParser, CommentsIgnored)
+{
     auto rule = DslParser::parse(R"(
         # This rule finds LdrpInitialize
         find function in "ntdll" where
             # Must be called from the thunk
-            called_by "LdrInitializeThunk"
-            not exported  # internal function
-            take first
+            called_by "LdrInitializeThunk";
+            not exported;  # internal function
+            take first;
     )");
 
     ASSERT_TRUE(rule.has_value());
     EXPECT_EQ(rule->predicates.size(), 3u);
 }
 
-TEST(DslParser, MissingWhere) {
+TEST(DslParser, MissingWhere)
+{
     auto rule = DslParser::parse(R"(
         find function in "ntdll"
             calls "Something"
@@ -145,7 +160,8 @@ TEST(DslParser, MissingWhere) {
     EXPECT_FALSE(rule.has_value());
 }
 
-TEST(DslParser, MissingModuleName) {
+TEST(DslParser, MissingModuleName)
+{
     auto rule = DslParser::parse(R"(
         find function in where
             calls "Something"
@@ -154,7 +170,8 @@ TEST(DslParser, MissingModuleName) {
     EXPECT_FALSE(rule.has_value());
 }
 
-TEST(DslParser, EmptyPredicates) {
+TEST(DslParser, EmptyPredicates)
+{
     auto rule = DslParser::parse(R"(
         find function in "ntdll" where
     )");
