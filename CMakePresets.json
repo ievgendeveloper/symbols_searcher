@@ -18,18 +18,18 @@
             "binaryDir": "${sourceDir}/build/release",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Release",
-                "SYMFIND_BUILD_TESTS": "OFF",
+                "SYMFIND_BUILD_TESTS": "ON",
                 "SYMFIND_BUILD_EXAMPLES": "ON"
             }
         },
         {
             "name": "release-min",
-            "displayName": "Release (minimal, library only)",
+            "displayName": "Release (minimal size optimization)",
             "binaryDir": "${sourceDir}/build/release-min",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "MinSizeRel",
-                "SYMFIND_BUILD_TESTS": "OFF",
-                "SYMFIND_BUILD_EXAMPLES": "OFF"
+                "SYMFIND_BUILD_TESTS": "ON",
+                "SYMFIND_BUILD_EXAMPLES": "ON"
             }
         }
     ],
@@ -51,6 +51,16 @@
         {
             "name": "debug",
             "configurePreset": "debug",
+            "output": { "outputOnFailure": true }
+        },
+        {
+            "name": "release",
+            "configurePreset": "release",
+            "output": { "outputOnFailure": true }
+        },
+        {
+            "name": "release-min",
+            "configurePreset": "release-min",
             "output": { "outputOnFailure": true }
         }
     ]
