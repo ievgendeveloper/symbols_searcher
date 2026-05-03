@@ -1,34 +1,8 @@
 #include "symfind/analysis_db.h"
 #include "symfind/disassembler.h"
+#include "symfind/function_finder.h"
 
 #include <gtest/gtest.h>
-
-[[nodiscard]] uint32_t compute_stack_frame_size_in_body(
-    const symfind::Disassembler& disasm,
-    std::span<const uint8_t> body,
-    uint64_t base_address)
-{
-    constexpr int kPrologueScanLimit = 16;
-
-    uint32_t frame_size = 0;
-    int instr_count = 0;
-
-    disasm.disassemble_cb(body, base_address, [&](const symfind::Instruction& instr)
-    {
-        if (instr.is_sub_rsp_imm)
-        {
-            frame_size = static_cast<uint32_t>(instr.imm_value);
-            return false; // stop - found it
-        }
-
-        // Stop scanning once we leave the prologue
-        if (++instr_count >= kPrologueScanLimit)
-            return false;
-        return true;
-    });
-
-    return frame_size;
-}
 
 TEST(ComputeStackFrameSize, RecognizesSubRspImm8)
 {
