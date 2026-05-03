@@ -89,7 +89,6 @@ This is **early development**. The DSL layer (lexer + parser + matcher) is imple
 
 ### Not yet implemented
 
-- Full analysis pipeline: collecting callees/callers per function, detecting loops, computing `stack_frame_size`
 - `PeModule::from_memory` (loading a module from a raw byte buffer)
 
 ## Adding a new DSL predicate
@@ -338,12 +337,14 @@ time the project is built. No manual installation required.
 
 ## Building
 
-Requires CMake 3.20+ and a C++20 compiler. All dependencies are fetched automatically via `FetchContent`.
+The project requires the MSVC compiler and a configured environment.
+Run the helper script from any PowerShell — it locates Visual Studio
+automatically and runs configure/build/test in a single shell:
 
-```
-cmake --preset debug
-cmake --build --preset debug
-ctest --preset debug
+```powershell
+powershell.exe -Executionpolicy Bypass -File "build.ps1"               # debug
+powershell.exe -Executionpolicy Bypass -File "build.ps1" release       # release
+powershell.exe -Executionpolicy Bypass -File "build.ps1" -NoTest       # skip tests
 ```
 
 Presets available:
