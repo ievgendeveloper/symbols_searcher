@@ -6,6 +6,7 @@ add_executable(symfind_tests
     test_disassembler.cpp
     test_pe_module.cpp
     test_globals.cpp
+    test_stack_frame.cpp
 )
 
 target_link_libraries(symfind_tests        
