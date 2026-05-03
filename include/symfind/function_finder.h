@@ -83,4 +83,29 @@ namespace symfind
      */
     [[nodiscard]] std::vector<Global> collect_globals(const std::vector<AnalyzedFunction>& functions);
 
+    /**
+     * @brief Compute the number of bytes for the stack frame of the function
+     * @param module - pe file loaded from disk (or memory) - dll or exe (.sys file maybe)
+     * @param disassembler - disassembler to analyze function's code
+     * @param functionRva - relative virtual address of function
+     * @param functionSize - size in bytes of function
+     * @return number of bytes for the stack frame
+     */
+    [[nodiscard]] uint32_t compute_stack_frame_size(const PeModule& module,
+                                                    const Disassembler& disassembler,
+                                                    uint64_t functionRva,
+                                                    uint64_t functionSize);
+
+    /**
+     * @brief Compute the number of bytes for the stack frame of the function directly from memory
+     * @param disassembler - disassembler to analyze function's code 
+     * @param body - the code of function needs to be analyzed
+     * @param functionRva - relative virtual address of function
+     * @return number of bytes for the stack frame
+     */
+    [[nodiscard]] uint32_t compute_stack_frame_size_in_body(
+        const symfind::Disassembler& disassembler,
+        std::span<const uint8_t> body,
+        uint64_t functionRva);
+
 } // namespace symfind
