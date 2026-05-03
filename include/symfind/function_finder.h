@@ -63,4 +63,24 @@ namespace symfind
     /// `callees` of all other functions. Builds reverse links.
     void link_callers(std::vector<symfind::AnalyzedFunction>& functions);
 
+    /**
+     * @brief collect references to data inside code of function
+     * @param module - pe file loaded from disk (or memory) - dll or exe (.sys file maybe)
+     * @param disassembler - disassembler to analyze function's code
+     * @param func_rva - relative virtual address of function
+     * @param func_size - size in bytes of function
+     * @return - vector of reference objects to data
+     */
+    [[nodiscard]] std::vector<Xref> collect_data_refs(const PeModule& module,
+                                                      const Disassembler& disassembler,
+                                                      uint64_t func_rva,
+                                                      uint64_t func_size);
+
+    /**
+     * @brief Create the enumeration of Globals after data from functions was agregated
+     * @param functions - result of analysis of separate functions
+     * @return - vector of Globals (objects with information about global variables and type of access to them)
+     */
+    [[nodiscard]] std::vector<Global> collect_globals(const std::vector<AnalyzedFunction>& functions);
+
 } // namespace symfind
