@@ -29,12 +29,12 @@ namespace symfind
                           : std::format("sub_{:X}", function.rva);
 
             // TODO: Disassemble function body, collect:
-            //   - stack_frame_size (from sub rsp, N)
             //   - has_loop (back-edge detection)
 
             af.callees = collect_callees(module, disassembler, af.rva, af.size);
             af.call_count = static_cast<uint32_t>(af.callees.size());
             af.data_refs = collect_data_refs(module, disassembler, af.rva, af.size);
+            af.stack_frame_size = compute_stack_frame_size(module, disassembler, af.rva, af.size);
 
             db.functions_.push_back(std::move(af));
         }
