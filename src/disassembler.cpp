@@ -74,6 +74,17 @@ namespace symfind
                 instruction.branch_target = target;
             }
 
+            // Detect `sub rsp, imm`
+            if (zydisInstruction.mnemonic == ZYDIS_MNEMONIC_SUB &&
+                zydisInstruction.operand_count >= 2 &&
+                operands[0].type == ZYDIS_OPERAND_TYPE_REGISTER &&
+                operands[0].reg.value == ZYDIS_REGISTER_RSP &&
+                operands[1].type == ZYDIS_OPERAND_TYPE_IMMEDIATE)
+            {
+                instruction.is_sub_rsp_imm = true;
+                instruction.imm_value = operands[1].imm.value.s; // signed immediate
+            }
+
             // Resolve RIP-relative memory operands
             for (size_t i = 0; i < zydisInstruction.operand_count; ++i)
             {

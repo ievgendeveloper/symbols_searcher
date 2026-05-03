@@ -279,4 +279,52 @@ namespace symfind
         return globals;
     }
 
+    uint32_t compute_stack_frame_size_in_body(const symfind::Disassembler& disassembler,
+                                              std::span<const uint8_t> body, uint64_t functionRva)
+    {
+        // The prologue is typically the first few instructions. We scan up to
+        // a small limit and take the first `sub rsp, imm` we encounter - that's
+        // the stack frame size. Anything beyond the prologue is unrelated.
+        constexpr int kPrologueScanLimit = 16;
+
+        uint32_t frameSize = 0;
+        int instructionCounter = 0;
+
+        disassembler.disassemble_cb(body, functionRva, [&](const Instruction& instruction)
+        {
+            if (instruction.is_sub_rsp_imm)
+            {
+                frameSize = static_cast<uint32_t>(instruction.imm_value);
+                return false; // stop - found it
+            }
+
+            // Stop scanning once we leave the prologue
+            if (++instructionCounter >= kPrologueScanLimit)
+            {
+                return false;
+            }
+
+            return true;
+        });
+
+        return frameSize;
+    }
+
+    uint32_t compute_stack_frame_size(const PeModule& module, const Disassembler& disassembler,
+                                      uint64_t functionRva, uint64_t functionSize)
+    {
+        if (functionSize == 0)
+        {
+            return 0;
+        }
+
+        const auto body = module.read_at(functionRva, functionSize);
+        if (body.empty())
+        {
+            return 0;
+        }
+
+        return compute_stack_frame_size_in_body(disassembler, body, functionRva);
+    }
+
 } // namespace symfind

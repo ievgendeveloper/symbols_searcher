@@ -33,6 +33,13 @@ namespace symfind
 
         /// True if instruction writes to memory (mov [addr], reg).
         bool is_mem_write = false;
+
+        /// True if instruction is `sub rsp, <imm>`.
+        bool is_sub_rsp_imm = false;
+
+        /// Immediate value for instructions where it's meaningful
+        /// (currently: sub rsp, imm).
+        int64_t imm_value = 0;
     };
 
     /// Thin wrapper around Zydis for linear disassembly.
