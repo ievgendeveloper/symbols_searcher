@@ -6,7 +6,6 @@
 
 namespace symfind
 {
-
     std::vector<Function> FunctionFinder::find(const PeModule& module,
                                                const Disassembler& disasm)
     {
