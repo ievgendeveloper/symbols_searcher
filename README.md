@@ -87,10 +87,6 @@ This is **early development**. The DSL layer (lexer + parser + matcher) is imple
 - Global variable discovery and cross-reference collection
 - RVA-to-file-offset translation in `PeModule::read_at`
 
-### Not yet implemented
-
-- `PeModule::from_memory` (loading a module from a raw byte buffer)
-
 ## Adding a new DSL predicate
 
 A predicate is a single condition in a `find ... where ...` rule, like `calls "X"` or `has_loop`. Adding a new one is the most common form of extending the DSL. This section walks through the full process step by step, explains *why* each file needs to change, and then shows a concrete worked example.
