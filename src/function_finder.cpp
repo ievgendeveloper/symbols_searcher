@@ -175,6 +175,28 @@ namespace symfind
         }
     }
 
+    // We prefer anonymous namespaces over `static` for internal linkage.
+    //
+    // Both make a symbol local to this translation unit, but the anonymous
+    // namespace is the more general C++ mechanism:
+    //
+    //   * It applies uniformly to functions, variables, types, templates,
+    //     and constants. `static` only works for functions and variables -
+    //     a file-scope `struct` cannot be made TU-local with `static`,
+    //     which leaves type definitions exposed to ODR violations across
+    //     translation units.
+    //
+    //   * It groups all TU-private declarations into a single, visually
+    //     obvious block instead of scattering `static` keywords across
+    //     the file.
+    //
+    //   * It is the idiom recommended by the C++ standard, the Core
+    //     Guidelines (SF.22), and major style guides; `static` at file
+    //     scope is largely retained for C compatibility.
+    //
+    // `static` remains appropriate for its other meanings - local
+    // variables with static storage duration, and class members - but
+    // not for hiding free functions or types from other TUs.
     namespace
     {
         bool is_data_section(const PeModule& module, uint64_t rva)
