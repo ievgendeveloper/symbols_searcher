@@ -20,7 +20,7 @@ $ErrorActionPreference = 'Stop'
 $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
 if (-not (Test-Path $vswhere)) {
     Write-Error "vswhere.exe not found. Visual Studio 2017+ or Build Tools required."
-    return
+    exit 1
 }
 
 # Find latest VS installation with C++ tools
@@ -31,13 +31,13 @@ $vsRoot = & $vswhere -latest -prerelease `
 
 if (-not $vsRoot) {
     Write-Error "No Visual Studio installation with MSVC found."
-    return
+    exit 1
 }
 
 $vcvars = Join-Path $vsRoot 'VC\Auxiliary\Build\vcvars64.bat'
 if (-not (Test-Path $vcvars)) {
     Write-Error "vcvars64.bat not found at: $vcvars"
-    return
+    exit 1
 }
 
 Write-Host "Using MSVC from: $vsRoot" -ForegroundColor Cyan
