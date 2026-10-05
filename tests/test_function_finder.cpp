@@ -99,7 +99,7 @@ TEST(AnalysisIntegration, FindLdrpInitializeInRealNtdll)
     ASSERT_GE(results.size(), 1u);
 
     // The match should be inside .text
-    spdlog::info("Found LdrpInitialize candidate at RVA 0x{:X}", results[0].rva);
+    SPDLOG_INFO("Found LdrpInitialize candidate at RVA 0x{:X}", results[0].rva);
 }
 
 TEST(CollectDataRefs, FindsLeaInRtlDecompressBuffer)
@@ -195,7 +195,7 @@ TEST(AnalysisIntegration, FindLdrpInitializeInRealNtdll_from_memory)
     ASSERT_TRUE(rule.has_value());
     auto results = symfind::dsl::DslMatcher::match(db, *rule);
     ASSERT_GE(results.size(), 1u);
-    spdlog::info("Found LdrpInitialize candidate at RVA 0x{:X} (from_memory)", results[0].rva);
+    SPDLOG_INFO("Found LdrpInitialize candidate at RVA 0x{:X} (from_memory)", results[0].rva);
 }
 
 TEST(CollectDataRefs, FindsLeaInRtlDecompressBuffer_from_memory)

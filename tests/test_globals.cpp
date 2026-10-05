@@ -87,7 +87,7 @@ TEST(AnalysisIntegration, FindRtlDecompressBufferProcsInRealNtdll)
     ASSERT_GE(results.size(), 1u)
         << "Expected to find RtlDecompressBufferProcs via referenced_by";
 
-    spdlog::info("Found candidate at RVA 0x{:X}", results[0].rva);
+    SPDLOG_INFO("Found candidate at RVA 0x{:X}", results[0].rva);
 
     // Sanity check: it should land in a non-executable section (.rdata or .data)
     bool in_data_section = false;
