@@ -109,6 +109,6 @@ TEST(AnalysisIntegration, SomeFunctionsHaveLoopsInNtdll)
     ASSERT_GT(total_substantial, 0);
     EXPECT_GT(with_loops, 0)
         << "Expected at least some looping functions in ntdll";
-    spdlog::info("ntdll: {}/{} substantial functions have loops",
+    SPDLOG_INFO("ntdll: {}/{} substantial functions have loops",
                  with_loops, total_substantial);
 }

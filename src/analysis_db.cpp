@@ -45,7 +45,7 @@ namespace symfind
         db.globals_ = collect_globals(db.functions_);
         db.build_indices();
 
-        spdlog::info("Analysis complete for '{}': {} functions, {} globals",
+        SPDLOG_INFO("Analysis complete for '{}': {} functions, {} globals",
                      db.module_name_, db.functions_.size(), db.globals_.size());
 
         return db;

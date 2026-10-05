@@ -35,16 +35,16 @@ int main(int argc, char* argv[])
     const char* pe_path = argv[1];
 
     // Step 1: Load the PE module
-    spdlog::info("Loading PE module: {}", pe_path);
+    SPDLOG_INFO("Loading PE module: {}", pe_path);
     auto module = symfind::PeModule::from_file(pe_path);
     if (!module)
     {
-        spdlog::error("Failed to load PE module");
+        SPDLOG_ERROR("Failed to load PE module");
         return 1;
     }
 
     // Step 2: Run analysis
-    spdlog::info("Running analysis...");
+    SPDLOG_INFO("Running analysis...");
     auto db = symfind::AnalysisDb::analyze(*module);
 
     // Step 3: Define a DSL rule
@@ -56,21 +56,21 @@ int main(int argc, char* argv[])
     )";
 
     // Step 4: Parse the rule
-    spdlog::info("Parsing DSL rule...");
+    SPDLOG_INFO("Parsing DSL rule...");
     auto rule = symfind::dsl::DslParser::parse(dsl_rule);
     if (!rule)
     {
-        spdlog::error("Failed to parse DSL rule");
+        SPDLOG_ERROR("Failed to parse DSL rule");
         return 1;
     }
 
     // Step 5: Match
-    spdlog::info("Searching for matching symbols...");
+    SPDLOG_INFO("Searching for matching symbols...");
     auto results = symfind::dsl::DslMatcher::match(db, *rule);
 
     if (results.empty())
     {
-        spdlog::warn("No matches found");
+        SPDLOG_WARN("No matches found");
     }
     else
     {

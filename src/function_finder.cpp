@@ -7,17 +7,17 @@
 namespace symfind
 {
     std::vector<Function> FunctionFinder::find(const PeModule& module,
-                                               const Disassembler& disasm)
+                                               const Disassembler& disassembler)
     {
-        std::vector<Function> funcs;
+        std::vector<Function> functions;
 
-        from_exports(module, funcs);
-        from_exception_directory(module, funcs);
-        from_call_targets(module, disasm, funcs);
-        deduplicate(funcs);
+        from_exports(module, functions);
+        from_exception_directory(module, functions);
+        from_call_targets(module, disassembler, functions);
+        deduplicate(functions);
 
-        spdlog::info("Found {} functions in '{}'", funcs.size(), module.name());
-        return funcs;
+        SPDLOG_INFO("Found {} functions in '{}'", functions.size(), module.name());
+        return functions;
     }
 
     void FunctionFinder::from_exports(const PeModule& module,

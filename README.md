@@ -234,10 +234,15 @@ case PredKind::Not:
 
 #### 8. Build and test
 
+Run the helper script from the project directory. It configures the MSVC
+environment, builds the project, and runs the tests (`debug` by default):
+
+```powershell
+powershell.exe -ExecutionPolicy Bypass -File .\build.ps1
 ```
-cmake --build --preset debug
-ctest --preset debug
-```
+
+Use `-Preset release` for a release build or `-NoTest` to skip tests.
+See the [Building](#building) section for the available presets.
 
 CMake notices that `dsl/grammar.y` and `dsl/lexer.re` have changed and re-runs Lemon and re2c before compiling. If the grammar has conflicts, Lemon will report them and leave a `grammar.out` file in the build directory with full state-machine details.
 

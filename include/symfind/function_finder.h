@@ -31,7 +31,7 @@ namespace symfind
             /// Discover all functions in the given module.
             [[nodiscard]]
             static std::vector<Function> find(const PeModule& module,
-                                              const Disassembler& disasm);
+                                              const Disassembler& disassembler);
 
 
             /// Collect functions from export table.
