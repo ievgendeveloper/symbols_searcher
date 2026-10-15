@@ -17,8 +17,14 @@
 
 using namespace symfind::dsl;
 
-struct PredRaw     { Predicate* p; };
-struct PredListRaw { std::vector<PredicatePtr>* list; };
+struct PredRaw
+{
+        Predicate* p;
+};
+struct PredListRaw
+{
+        std::vector<PredicatePtr>* list;
+};
 }
 
 %token_type { Token }
@@ -50,14 +56,19 @@ program ::= rule.
 rule ::= FIND target_kind(K) IN STRING(M) WHERE pred_list(L). {
     ctx->result.target = K;
     ctx->result.module_name = std::string(M.str_value);
-    for (auto& p : *L.list) {
+    for (auto& p : *L.list)
+    {
         ctx->result.predicates.push_back(std::move(p));
     }
     delete L.list;
 }
 
-target_kind(K) ::= FUNCTION. { K = TargetKind::Function; }
-target_kind(K) ::= GLOBAL.   { K = TargetKind::Global; }
+target_kind(K) ::= FUNCTION. {
+    K = TargetKind::Function;
+}
+target_kind(K) ::= GLOBAL.   {
+    K = TargetKind::Global;
+}
 
 /* One or more SEMI-terminated predicates */
 pred_list(L) ::= predicate(P) SEMI. {
@@ -87,7 +98,8 @@ predicate(P) ::= CALLED_BY STRING(S). {
 predicate(P) ::= CALLED_BY LPAREN pred_list(Inner) RPAREN. {
     auto* p = new Predicate;
     p->kind = PredKind::CalledByBlock;
-    for (auto& cp : *Inner.list) {
+    for (auto& cp : *Inner.list)
+    {
         p->children.push_back(std::move(cp));
     }
     delete Inner.list;
@@ -165,8 +177,18 @@ predicate(P) ::= READS_REG STRING(S). {
 
 /* ─── Comparison operators ───────────────────────── */
 
-cmp_op(O) ::= GTE. { O = CmpOp::Gte; }
-cmp_op(O) ::= LTE. { O = CmpOp::Lte; }
-cmp_op(O) ::= EQ.  { O = CmpOp::Eq;  }
-cmp_op(O) ::= GT.  { O = CmpOp::Gt;  }
-cmp_op(O) ::= LT.  { O = CmpOp::Lt;  }
+cmp_op(O) ::= GTE. {
+    O = CmpOp::Gte;
+}
+cmp_op(O) ::= LTE. {
+    O = CmpOp::Lte;
+}
+cmp_op(O) ::= EQ.  {
+    O = CmpOp::Eq;
+}
+cmp_op(O) ::= GT.  {
+    O = CmpOp::Gt;
+}
+cmp_op(O) ::= LT.  {
+    O = CmpOp::Lt;
+}

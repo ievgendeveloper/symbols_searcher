@@ -6,9 +6,16 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+env:
+  CMAKE_GENERATOR: Ninja
+
 jobs:
   build:
     runs-on: windows-latest
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -23,9 +30,17 @@ jobs:
         with:
           path: |
             build/${{ matrix.preset }}/_deps
-          key: deps-${{ runner.os }}-${{ matrix.preset }}-${{ hashFiles('CMakeLists.txt', 'cmake/**', 'CMakePresets.json') }}
+          key: deps-${{ runner.os }}-ninja-${{ matrix.preset }}-${{ hashFiles('CMakeLists.txt', 'pdb_stuff/CMakeLists.txt', 'cmake/**', 'CMakePresets.json') }}
           restore-keys: |
-            deps-${{ runner.os }}-${{ matrix.preset }}-
+            deps-${{ runner.os }}-ninja-${{ matrix.preset }}-
+
+      - name: Cache pinned NTDLL corpus and archives
+        uses: actions/cache@v4
+        with:
+          path: |
+            pdb_stuff/corpus
+            pdb_stuff/archives
+          key: ntdll-corpus-${{ runner.os }}-${{ hashFiles('pdb_stuff/ntdll_fixtures.json') }}
 
       - name: Build and test (${{ matrix.preset }})
         shell: powershell
@@ -39,5 +54,65 @@ jobs:
           path: |
             build/${{ matrix.preset }}/Testing/**/*.log
             build/${{ matrix.preset }}/Testing/**/LastTest.log
+            pdb_stuff/corpus/**/*.json
+            pdb_stuff/tmp/corpus-preparation/**/manifest.json
+          if-no-files-found: ignore
+          retention-days: 14
+
+  fresh-network:
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Only build dependencies are restored. DLL/PDB bytes and layer archives
+      # must be downloaded into a new isolated directory by the network test.
+      - name: Cache CMake FetchContent dependencies
+        uses: actions/cache@v4
+        with:
+          path: build/debug/_deps
+          key: deps-${{ runner.os }}-ninja-debug-${{ hashFiles('CMakeLists.txt', 'pdb_stuff/CMakeLists.txt', 'cmake/**', 'CMakePresets.json') }}
+          restore-keys: |
+            deps-${{ runner.os }}-ninja-debug-
+
+      - name: Configure and build network test tools
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (-not (Get-Command re2c.exe -ErrorAction SilentlyContinue)) {
+            choco install re2c -y --no-progress
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine'), [Environment]::GetEnvironmentVariable('Path', 'User') -join ';'
+          }
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          $vsRoot = & $vswhere -latest -prerelease -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (-not $vsRoot) { throw 'Visual Studio C++ tools not found' }
+          $vcvars = Join-Path $vsRoot 'VC\Auxiliary\Build\vcvars64.bat'
+          if (-not (Test-Path -LiteralPath $vcvars)) { throw 'vcvars64.bat not found' }
+          $commands = @(
+            ('call "' + $vcvars + '"'),
+            'cmake --preset debug -DSYMFIND_ENABLE_NETWORK_TESTS=ON',
+            'cmake --build --preset debug --target symfind_tests symfind_corpus_manager'
+          )
+          cmd.exe /d /c ($commands -join ' && ')
+          exit $LASTEXITCODE
+
+      - name: Download and verify a fresh isolated corpus
+        shell: pwsh
+        timeout-minutes: 20
+        run: |
+          ctest --preset network --output-on-failure --no-tests=error
+          exit $LASTEXITCODE
+
+      - name: Upload network test reports on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fresh-network-reports
+          path: |
+            build/debug/Testing/**/*.log
+            pdb_stuff/reproducibility-check/**/manifest.json
           if-no-files-found: ignore
           retention-days: 14

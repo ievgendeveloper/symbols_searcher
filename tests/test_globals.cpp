@@ -1,3 +1,4 @@
+#include "ntdll_symbol_rules.h"
 #include "spdlog/spdlog.h"
 #include "symfind/dsl_matcher.h"
 #include "symfind/function_finder.h"
@@ -76,11 +77,8 @@ TEST(AnalysisIntegration, FindRtlDecompressBufferProcsInRealNtdll)
     EXPECT_GT(db.globals().size(), 0u)
         << "Module should have at least some globals";
 
-    auto rule = DslParser::parse(R"(
-        find global in "ntdll" where
-            referenced_by "RtlDecompressBuffer";
-            take first;
-    )");
+    auto rule = DslParser::parse(
+        symfind::validation::ntdll_rule_for("RtlDecompressBufferProcs"));
     ASSERT_TRUE(rule.has_value());
 
     auto results = DslMatcher::match(db, *rule);

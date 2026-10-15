@@ -1,5 +1,5 @@
-#include <gtest/gtest.h>
 #include "symfind/pe_module.h"
+#include <gtest/gtest.h>
 
 #include <algorithm>
 #include <cstring>
@@ -96,8 +96,8 @@ TEST(PeModuleMapping, ReadAtSectionStartContainsExpectedBytes)
     ASSERT_GE(raw_image.size(), text_section->virtual_address + 16);
 
     EXPECT_EQ(0, std::memcmp(via_read_at.data(),
-                  raw_image.data() + text_section->virtual_address,
-                  16));
+                             raw_image.data() + text_section->virtual_address,
+                             16));
 }
 
 // ─── Export lookup consistency ──────────────────────
@@ -145,7 +145,8 @@ TEST(PeModuleMapping, ReadAtExportEntryPointReturnsCode)
     // between Windows versions, but we can sanity-check that it isn't
     // all zeros (which would indicate we read into a hole).
     bool all_zero = std::all_of(code.begin(), code.end(),
-                                [](uint8_t b) { return b == 0; });
+                                [](uint8_t b)
+                                { return b == 0; });
     EXPECT_FALSE(all_zero) << "Function entry point should not be all zeros";
 }
 

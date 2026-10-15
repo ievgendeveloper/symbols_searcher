@@ -7,7 +7,7 @@ namespace symfind
 {
     struct Disassembler::Implementation
     {
-        ZydisDecoder decoder;
+            ZydisDecoder decoder;
     };
 
     Disassembler::Disassembler() : impl_(std::make_unique<Implementation>())
@@ -23,10 +23,9 @@ namespace symfind
         std::vector<Instruction> result;
 
         disassemble_cb(code, base_address, [&](const Instruction& instr)
-        {
+                       {
             result.push_back(instr);
-            return true;
-        });
+            return true; });
 
         return result;
     }

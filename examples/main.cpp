@@ -1,5 +1,5 @@
-#include <symfind/symfind.h>
 #include <spdlog/spdlog.h>
+#include <symfind/symfind.h>
 
 #include <cstdio>
 
@@ -14,20 +14,22 @@ int main(int argc, char* argv[])
 
         std::printf("  # Find LdrpInitialize\n");
         std::printf("  find function in \"ntdll\" where\n");
-        std::printf("      called_by \"LdrInitializeThunk\"\n");
-        std::printf("      not exported\n");
-        std::printf("      take first\n\n");
+        std::printf("      called_by \"LdrInitializeThunk\";\n");
+        std::printf("      not exported;\n");
+        std::printf("      take first;\n\n");
 
         std::printf("  # Find LdrpLoadDll\n");
         std::printf("  find function in \"ntdll\" where\n");
-        std::printf("      called_by \"LdrLoadDll\"\n");
-        std::printf("      not exported\n");
-        std::printf("      calls \"RtlGetCurrentServiceSessionId\"\n\n");
+        std::printf("      called_by \"LdrLoadDll\";\n");
+        std::printf("      not exported;\n");
+        std::printf("      stack_frame_size >= 0x80;\n");
+        std::printf("      stack_frame_size <= 0x200;\n");
+        std::printf("      calls_count >= 4;\n\n");
 
         std::printf("  # Find RtlDecompressBufferProcs\n");
         std::printf("  find global in \"ntdll\" where\n");
-        std::printf("      referenced_by \"RtlDecompressBuffer\"\n");
-        std::printf("      take first\n");
+        std::printf("      referenced_by \"RtlDecompressBuffer\";\n");
+        std::printf("      take first;\n");
 
         return 1;
     }
@@ -50,9 +52,11 @@ int main(int argc, char* argv[])
     // Step 3: Define a DSL rule
     const char* dsl_rule = R"(
         find function in "ntdll" where
-            called_by "LdrLoadDll"
-            not exported
-            calls "RtlGetCurrentServiceSessionId"
+            called_by "LdrLoadDll";
+            not exported;
+            stack_frame_size >= 0x80;
+            stack_frame_size <= 0x200;
+            calls_count >= 4;
     )";
 
     // Step 4: Parse the rule

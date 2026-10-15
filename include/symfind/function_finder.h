@@ -1,8 +1,8 @@
 #pragma once
 
 #include "analysis_db.h"
-#include "symfind/pe_module.h"
 #include "symfind/disassembler.h"
+#include "symfind/pe_module.h"
 
 #include <cstdint>
 #include <vector>
@@ -12,10 +12,11 @@ namespace symfind
     /// A discovered function within the module.
     struct Function
     {
-        uint64_t rva = 0; ///< Start address (RVA)
-        uint64_t size = 0; ///< Size in bytes (0 if unknown)
-        bool exported = false; ///< Has a matching export entry
-        std::string export_name; ///< Export name (empty if not exported)
+            uint64_t rva = 0;                  ///< Start address (RVA)
+            uint64_t size = 0;                 ///< Size in bytes (0 if unknown)
+            bool exported = false;             ///< Has a matching export entry
+            std::string export_name;           ///< Export name (empty if not exported)
+            std::vector<FunctionRange> ranges; ///< Actual owned spans; size remains the primary span.
     };
 
     /// Discovers function boundaries within a PE module.
@@ -29,10 +30,8 @@ namespace symfind
     {
         public:
             /// Discover all functions in the given module.
-            [[nodiscard]]
-            static std::vector<Function> find(const PeModule& module,
-                                              const Disassembler& disassembler);
-
+            [[nodiscard]] static std::vector<Function> find(const PeModule& module,
+                                                            const Disassembler& disassembler);
 
             /// Collect functions from export table.
             static void from_exports(const PeModule& module,
@@ -98,7 +97,7 @@ namespace symfind
 
     /**
      * @brief Compute the number of bytes for the stack frame of the function directly from memory
-     * @param disassembler - disassembler to analyze function's code 
+     * @param disassembler - disassembler to analyze function's code
      * @param body - the code of function needs to be analyzed
      * @param functionRva - relative virtual address of function
      * @return number of bytes for the stack frame
@@ -110,7 +109,7 @@ namespace symfind
 
     /**
      * @brief Find potential loop construction inside function's body
-     * @param disassembler - disassembler to analyze function's code 
+     * @param disassembler - disassembler to analyze function's code
      * @param body - the code of function needs to be analyzed
      * @param functionRva - relative virtual address of function
      * @param functionSize - size in bytes of function's body
@@ -124,10 +123,10 @@ namespace symfind
     /**
      * @brief Find potential loop construction inside module's function when we know it's location
      * @param module - pe file loaded from disk (or memory) - dll or exe (.sys file maybe)
-     * @param disassembler - disassembler to analyze function's code 
+     * @param disassembler - disassembler to analyze function's code
      * @param functionRva - relative virtual address of function
      * @param functionSize - size in bytes of function's body
-     * @return 
+     * @return
      */
     [[nodiscard]] bool detect_loops(const PeModule& module,
                                     const Disassembler& disassembler,

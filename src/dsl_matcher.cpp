@@ -1,8 +1,8 @@
 #include "symfind/dsl_matcher.h"
 
-#include <spdlog/spdlog.h>
 #include <algorithm>
 #include <format>
+#include <spdlog/spdlog.h>
 
 namespace symfind::dsl
 {
@@ -101,7 +101,7 @@ namespace symfind::dsl
                                   const std::vector<PredicatePtr>& predicates)
     {
         SPDLOG_INFO("match_global called for global at 0x{:X}, refs={}",
-                     global.rva, global.refs.size());
+                    global.rva, global.refs.size());
 
         for (const auto& pred : predicates)
         {
@@ -129,7 +129,6 @@ namespace symfind::dsl
     {
         switch (pred.kind)
         {
-
         case PredKind::Calls:
         {
             // Check if this function calls the named function
@@ -199,7 +198,7 @@ namespace symfind::dsl
 
         default:
             SPDLOG_WARN("Unhandled predicate kind {} for function matching",
-                         static_cast<int>(pred.kind));
+                        static_cast<int>(pred.kind));
             return false;
         }
     }
@@ -210,7 +209,6 @@ namespace symfind::dsl
     {
         switch (pred.kind)
         {
-
         case PredKind::ReferencedBy:
         {
             SPDLOG_INFO("ReferencedBy: looking for func '{}'", pred.str_value);
@@ -221,7 +219,7 @@ namespace symfind::dsl
                 return false;
             }
             SPDLOG_INFO("ReferencedBy: found func at rva 0x{:X}, global has {} refs",
-                         func->rva, global.refs.size());
+                        func->rva, global.refs.size());
             for (const auto& ref : global.refs)
             {
                 SPDLOG_INFO("  ref: from_func=0x{:X}, target=0x{:X}", ref.from_func, ref.to_rva);
@@ -242,7 +240,7 @@ namespace symfind::dsl
 
         default:
             SPDLOG_WARN("Unhandled predicate kind {} for global matching",
-                         static_cast<int>(pred.kind));
+                        static_cast<int>(pred.kind));
             return false;
         }
     }
