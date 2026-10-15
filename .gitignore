@@ -5,3 +5,13 @@
 /.vs/
 *.user
 CMakeUserPresets.json
+# Persistent downloaded fixtures, archive caches and generated reports.
+# C++ preparation sources and ntdll_fixtures.json remain versioned.
+/pdb_stuff/corpus/
+/pdb_stuff/archives/
+/pdb_stuff/metadata/
+/pdb_stuff/reports/
+/pdb_stuff/reproducibility-check/
+/pdb_stuff/diagnostics/
+/pdb_stuff/backups/
+/pdb_stuff/tmp/

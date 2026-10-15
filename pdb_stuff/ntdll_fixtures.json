@@ -1,0 +1,244 @@
+{
+  "schema_version": 1,
+  "notes": [
+    "DLL/PDB bytes come from Microsoft Symbol Server or pinned official Microsoft Nano Server layers. Winbindex supplies client metadata only.",
+    "All entries are x64. Six OS families have representative samples; an additional Windows 11 22H2 symbol-store lookup sample has explicit unverified installed-OS provenance. This is not coverage of every release, edition or architecture.",
+    "Server 2016 samples SafeOS; Server 2019 and 2022 sample Nano Server containers. Installed Desktop Experience/System32 versions require separately imported fixtures.",
+    "Full-file SHA256 and DLL/PDB identities are strict. Symbol-server timestamp/SizeOfImage keys can resolve to a different full-file version; archive entries avoid that ambiguity."
+  ],
+  "fixtures": [
+    {
+      "label": "windows-10",
+      "target_os": "Windows 10 x64",
+      "provenance": {
+        "kind": "winbindex_client",
+        "proven_os": "Windows 10 version 2004 x64",
+        "os_coverage": true,
+        "metadata_url": "https://winbindex.m417z.com/data/by_filename_compressed/ntdll.dll.json.gz",
+        "metadata_sha256": "9ae880da35752b6fcdbd752c7a6caa689f211dbe42d1611fab08a408de3d2457",
+        "metadata_record_sha256": "96edaf03c5c54e5e0f8892a4944020dc1d4ca8edeb8de3fa1dabf02c61812dda",
+        "windows_version": "2004",
+        "update": "BASE",
+        "windows_version_info": {
+          "isoSha256": "a9efd2329ed805a6a58e0e0101f9b22ad4031e80e2c663c571cd004db26d2f31",
+          "releaseDate": "2020-05-27"
+        },
+        "update_info": null,
+        "source_paths": [
+          "Windows\\System32\\ntdll.dll"
+        ]
+      },
+      "winbindex_selector": {
+        "windows_version": "2004",
+        "version_prefix": "10.0.19041."
+      },
+      "pe": {
+        "machine": 34404,
+        "timestamp": 3403193012,
+        "image_size": 2048000,
+        "file_size": 2020080,
+        "checksum": 2038479,
+        "version": "10.0.19041.207",
+        "sha256": "96edaf03c5c54e5e0f8892a4944020dc1d4ca8edeb8de3fa1dabf02c61812dda",
+        "pdb": {
+          "name": "ntdll.pdb",
+          "guid": "63E12347526A46144B98F8CF61CDED79",
+          "age": 1
+        }
+      },
+      "pdb_sha256": "c79cbcc3bbb007009d6d4eff81eeddc37ec28240e4fce3c0fae39b11f06a7b88"
+    },
+    {
+      "label": "windows-11",
+      "target_os": "Windows 11 x64",
+      "pe": {
+        "machine": 34404,
+        "timestamp": 1809777610,
+        "image_size": 2519040,
+        "file_size": 2522080,
+        "checksum": 2533631,
+        "version": "10.0.26100.9444",
+        "sha256": "a74f7482085eab125ccc09152ab7e0b5994bcb13e1a7b29880bdbb24179ecb8b",
+        "pdb": {
+          "name": "ntdll.pdb",
+          "guid": "C3093720177DA6851519DCFFE8DF53FE",
+          "age": 1
+        }
+      },
+      "pdb_sha256": "879596b54dc0b944e47160dcba01bac56fbc13eaed41fcad50897c6fdd730d1f",
+      "provenance": {
+        "kind": "verified_host_system32_and_microsoft_symbol_server",
+        "os_coverage": true,
+        "proven_os": "Microsoft Windows 11 Pro x64",
+        "host_os_version": "10.0.26300",
+        "sample_profile": "Installed host System32",
+        "source_path": "C:\\Windows\\System32\\ntdll.dll",
+        "dll_source_url": "https://msdl.microsoft.com/download/symbols/ntdll.dll/6BDF03CA267000/ntdll.dll",
+        "note": "Host OS caption/version/architecture read from Win32_OperatingSystem. Full DLL SHA256 was independently reproduced by downloading the Microsoft symbol-server DLL key. OS build and DLL file version differ and are recorded separately."
+      }
+    },
+    {
+      "label": "windows-11-22h2-symbol-store",
+      "target_os": "Windows 11 22H2 build-family sample from Microsoft Symbol Server",
+      "provenance": {
+        "kind": "microsoft_symbol_server_lookup",
+        "os_coverage": false,
+        "observed_version": "10.0.22621.675",
+        "dll_source_url": "https://msdl.microsoft.com/download/symbols/ntdll.dll/F2E8A5AB214000/ntdll.dll",
+        "lookup_seed": {
+          "metadata_url": "https://winbindex.m417z.com/data/by_filename_compressed/ntdll.dll.json.gz",
+          "sha256": "a23229982bd8925b3794586646235e4a754cd3a647381d0eef3e2b18af58bfbb",
+          "version": "10.0.22621.608",
+          "windows_version": "11-22H2"
+        },
+        "note": "The Windows 11 22H2 metadata lookup resolved to 22621.675 with another full-file SHA256. Microsoft bytes and PDB are pinned, but exact installed-OS/ISO hash coverage is unverified. This is an additional comparison sample, not the primary verified Windows 11 fixture."
+      },
+      "pe": {
+        "machine": 34404,
+        "timestamp": 4075333035,
+        "image_size": 2179072,
+        "file_size": 2174888,
+        "checksum": 2207387,
+        "version": "10.0.22621.675",
+        "sha256": "97abd701e0d3cea1870134243d351af270f3b57dc816214e43eedf27e9ad997c",
+        "pdb": {
+          "name": "ntdll.pdb",
+          "guid": "2E6A42F182EBE67B23288003D44FEB53",
+          "age": 1
+        }
+      },
+      "pdb_sha256": "d44a022eb9fb35b2e99a44910c8a9212815525b544894d6050682f2dcd315f0a"
+    },
+    {
+      "label": "windows-server-2016",
+      "target_os": "Windows Server 2016 x64",
+      "pe": {
+        "machine": 34404,
+        "timestamp": 1683601922,
+        "image_size": 1896448,
+        "file_size": 1883624,
+        "checksum": 1904406,
+        "version": "10.0.14393.5980",
+        "sha256": "a26b7bb6ee89fa07daab28d8ca8206ba88ba2419ab01514df1fc0b8cf0efb4ed",
+        "pdb": {
+          "name": "ntdll.pdb",
+          "guid": "4922D1B553B6411CB12FD7CC54A589E6",
+          "age": 1
+        }
+      },
+      "provenance": {
+        "kind": "microsoft_safeos_package",
+        "proven_os": "Windows Server 2016 SafeOS x64",
+        "os_coverage": true,
+        "sample_profile": "SafeOS / recovery environment",
+        "package": "KB5027386",
+        "package_sha256": "cf9cab78333c66b5ac2fe4103a149260824cc0379d44c0ac85efd8e53b5e82f5",
+        "package_url": "https://catalog.s.download.windowsupdate.com/c/msdownload/update/software/crup/2023/06/windows10.0-kb5027386-x64_fccb647e08e6729e47251059a6d1e321a4aa429e.cab",
+        "support_url": "https://support.microsoft.com/en-us/servicing/os/windows-server/2023/06/kb5027386-compatibility-update-for-installing-and-recovering-windows-server-2016-june-13-2023",
+        "package_member": "amd64_microsoft-windows-ntdll_31bf3856ad364e35_10.0.14393.5980_none_ce4544d556fb55dd/ntdll.dll",
+        "note": "Full x64 DLL extracted from the Microsoft SafeOS CAB; SHA256 equals its component manifest. This samples the recovery environment, not an installed Server System32 image."
+      },
+      "pdb_sha256": "c8925e1450ccae95f8ed7641435c48cbd367b5f303a6316348aa06c4f0f6f902"
+    },
+    {
+      "label": "windows-server-2019",
+      "target_os": "Windows Server 2019 x64",
+      "pe": {
+        "machine": 34404,
+        "timestamp": 2499291048,
+        "image_size": 2027520,
+        "file_size": 2004720,
+        "checksum": 2043981,
+        "version": "10.0.17763.9245",
+        "sha256": "e9babbb251d6de38f5adf8a61a69fdd6bb53f1d6880aff1934cf8c2ff02db89c",
+        "pdb": {
+          "name": "ntdll.pdb",
+          "guid": "5C6F254DAE2A96303E61BC2E0C5BB358",
+          "age": 1
+        }
+      },
+      "dll_archive": {
+        "url": "https://mcr.microsoft.com/v2/windows/nanoserver/blobs/sha256:aa447e26b619a14a4a782aa63855614861ba56194900e0a7642cd4e099b455b8",
+        "sha256": "aa447e26b619a14a4a782aa63855614861ba56194900e0a7642cd4e099b455b8",
+        "file_size": 105671081,
+        "format": "tar.gz",
+        "member": "Files/Windows/System32/ntdll.dll"
+      },
+      "provenance": {
+        "kind": "microsoft_container_registry",
+        "proven_os": "Windows Server 2019 Nano Server x64",
+        "os_coverage": true,
+        "sample_profile": "Nano Server container System32",
+        "image_manifest_url": "https://mcr.microsoft.com/v2/windows/nanoserver/manifests/sha256:c5980a8cd05a3902130f95fbad5b7db35d21e00183b063ee6bca5c1dcab40ce9",
+        "image_manifest_sha256": "c5980a8cd05a3902130f95fbad5b7db35d21e00183b063ee6bca5c1dcab40ce9",
+        "image_os_version": "10.0.17763.9245",
+        "support_url": "https://learn.microsoft.com/en-us/virtualization/windowscontainers/manage-containers/container-base-images",
+        "note": "Full x64 System32 DLL read from the pinned official Microsoft Nano Server layer. This covers Nano Server, not a Desktop Experience installation. Symbol-server DLL lookups may resolve to different bytes, so this entry fetches the pinned layer."
+      },
+      "pdb_sha256": "84daf12d9f3b8d5303589b819c5d54665d7b99ab70f8cbaed71c13fce42955b3"
+    },
+    {
+      "label": "windows-server-2022",
+      "target_os": "Windows Server 2022 x64",
+      "pe": {
+        "machine": 34404,
+        "timestamp": 3270171236,
+        "image_size": 2105344,
+        "file_size": 2104800,
+        "checksum": 2139483,
+        "version": "10.0.20348.5622",
+        "sha256": "cf49573b6caa724c13310f2f774e81d527831e84bb8db822e12932ce6a47ea9e",
+        "pdb": {
+          "name": "ntdll.pdb",
+          "guid": "06D1C1456B12EF306389A4D17D891BF6",
+          "age": 1
+        }
+      },
+      "dll_archive": {
+        "url": "https://mcr.microsoft.com/v2/windows/nanoserver/blobs/sha256:5ccf192ddcd06a1087b3afc5eb6c9d641d765360a4e9e0f1ec1c4b50a0bbfa44",
+        "sha256": "5ccf192ddcd06a1087b3afc5eb6c9d641d765360a4e9e0f1ec1c4b50a0bbfa44",
+        "file_size": 120770243,
+        "format": "tar.gz",
+        "member": "Files/Windows/System32/ntdll.dll"
+      },
+      "provenance": {
+        "kind": "microsoft_container_registry",
+        "proven_os": "Windows Server 2022 Nano Server x64",
+        "os_coverage": true,
+        "sample_profile": "Nano Server container System32",
+        "image_manifest_url": "https://mcr.microsoft.com/v2/windows/nanoserver/manifests/sha256:87af42244113104b3ce4b5646f9ec1ab6690e6753dd68924e698bdc2132546b3",
+        "image_manifest_sha256": "87af42244113104b3ce4b5646f9ec1ab6690e6753dd68924e698bdc2132546b3",
+        "image_os_version": "10.0.20348.5622",
+        "support_url": "https://learn.microsoft.com/en-us/virtualization/windowscontainers/manage-containers/container-base-images",
+        "note": "Full x64 System32 DLL read from the pinned official Microsoft Nano Server layer. This covers Nano Server, not a Desktop Experience installation. Symbol-server DLL lookups may resolve to different bytes, so this entry fetches the pinned layer."
+      },
+      "pdb_sha256": "d9ddf7d4fe79c740a07ae62936119de2fa920b60e4f72136d10bb60dfc369c0c"
+    },
+    {
+      "label": "windows-7",
+      "target_os": "Windows 7 SP1 x64",
+      "provenance": {
+        "kind": "windbg_report_and_microsoft_symbol_server",
+        "proven_os": "Windows 7 SP1 x64 RTM",
+        "os_coverage": true,
+        "metadata_url": "https://stackoverflow.com/questions/7093494/windbg-x64-cannot-debug-a-crash-dump-failed-to-load-data-access-dll",
+        "note": "The author's WinDbg report gives win7sp1_rtm.101119-1850, timestamp, SizeOfImage, checksum and exact PDB GUID/age. All those fields were checked against Microsoft-downloaded bytes; SHA256 pinned from those bytes."
+      },
+      "pe": {
+        "machine": 34404,
+        "timestamp": 1290258681,
+        "image_size": 1740800,
+        "file_size": 1731936,
+        "checksum": 1791466,
+        "version": "6.1.7601.17514",
+        "sha256": "91e3d98ad3119e8addf8d2aa1dd6795162842fff7101e4c70c5137e847b4ff50",
+        "pdb": {
+          "name": "ntdll.pdb",
+          "guid": "6192BFDB9F04442995FFCB0BE95172E1",
+          "age": 2
+        }
+      },
+      "pdb_sha256": "aa2a2a0e82ea0817bd1e01700b3be53b8bbd40b48eb1f52e0c8e11284099f8a3"
+    }
+  ]
+}

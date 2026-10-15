@@ -16,6 +16,11 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
 # ─── Options ───────────────────────────────────────────
 option(SYMFIND_BUILD_TESTS    "Build unit tests"         ON)
 option(SYMFIND_BUILD_EXAMPLES "Build example programs"   ON)
+option(SYMFIND_BUILD_PDB_TOOLS "Build PDB comparison and fixture utilities" ON)
+option(SYMFIND_AUTO_FETCH_NTDLL "Download missing pinned NTDLL test fixtures" ON)
+option(SYMFIND_ENABLE_NETWORK_TESTS "Register fresh network corpus verification" OFF)
+set(SYMFIND_NTDLL_CORPUS_DIR "${PROJECT_SOURCE_DIR}/pdb_stuff/corpus" CACHE PATH
+    "Persistent pinned NTDLL test corpus")
 
 # ─── Code generation (lemon + re2c) ───────────────────
 include(CodeGen)
@@ -88,6 +93,11 @@ endif()
 
 # ─── Main library ─────────────────────────────────────
 add_subdirectory(src)
+
+# Persistent PDB data lives in pdb_stuff; only generated build files live in build.
+if(WIN32 AND (SYMFIND_BUILD_PDB_TOOLS OR SYMFIND_BUILD_TESTS))
+    add_subdirectory(pdb_stuff)
+endif()
 
 # ─── Tests ────────────────────────────────────────────
 if(SYMFIND_BUILD_TESTS)

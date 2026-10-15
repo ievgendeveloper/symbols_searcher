@@ -1,8 +1,9 @@
 #include "symfind/analysis_db.h"
 #include "symfind/function_finder.h"
 
-#include <spdlog/spdlog.h>
+#include <algorithm>
 #include <format>
+#include <spdlog/spdlog.h>
 
 namespace symfind
 {
@@ -24,19 +25,44 @@ namespace symfind
             analyzedFunction.size = function.size;
             analyzedFunction.exported = function.exported;
             analyzedFunction.name = function.exported
-                          ? function.export_name
-                          : std::format("sub_{:X}", function.rva);
+                                        ? function.export_name
+                                        : std::format("sub_{:X}", function.rva);
 
-            analyzedFunction.callees = 
-                collect_callees(module, disassembler, analyzedFunction.rva, analyzedFunction.size);
-            analyzedFunction.call_count = 
+            analyzedFunction.ranges = function.ranges;
+            if (analyzedFunction.ranges.empty() && function.size != 0)
+                analyzedFunction.ranges.push_back({function.rva, function.size});
+            for (const auto& range : analyzedFunction.ranges)
+            {
+                const auto callees = collect_callees(module, disassembler, range.rva, range.size);
+                analyzedFunction.callees.insert(analyzedFunction.callees.end(), callees.begin(), callees.end());
+                auto references = collect_data_refs(module, disassembler, range.rva, range.size);
+                for (auto& reference : references)
+                    reference.from_func = analyzedFunction.rva;
+                analyzedFunction.data_refs.insert(analyzedFunction.data_refs.end(), references.begin(), references.end());
+
+                // A backward branch may cross between owned spans. Test actual
+                // membership rather than including the bytes in sparse gaps.
+                const auto body = module.read_at(range.rva, range.size);
+                disassembler.disassemble_cb(body, range.rva, [&](const Instruction& instruction)
+                                            {
+                    if (instruction.is_jump && instruction.branch_target != 0 &&
+                        instruction.branch_target < instruction.address &&
+                        std::any_of(analyzedFunction.ranges.begin(), analyzedFunction.ranges.end(),
+                            [&](const FunctionRange& owned)
+                            {
+                                return instruction.branch_target >= owned.rva &&
+                                       instruction.branch_target - owned.rva < owned.size;
+                            }))
+                    {
+                        analyzedFunction.has_loop = true;
+                        return false;
+                    }
+                    return true; });
+            }
+            analyzedFunction.call_count =
                 static_cast<uint32_t>(analyzedFunction.callees.size());
-            analyzedFunction.data_refs = 
-                collect_data_refs(module, disassembler, analyzedFunction.rva, analyzedFunction.size);
-            analyzedFunction.stack_frame_size = 
+            analyzedFunction.stack_frame_size =
                 compute_stack_frame_size(module, disassembler, analyzedFunction.rva, analyzedFunction.size);
-            analyzedFunction.has_loop = 
-                detect_loops(module, disassembler, analyzedFunction.rva, analyzedFunction.size);
 
             db.functions_.push_back(std::move(analyzedFunction));
         }
@@ -45,8 +71,21 @@ namespace symfind
         db.globals_ = collect_globals(db.functions_);
         db.build_indices();
 
-        spdlog::info("Analysis complete for '{}': {} functions, {} globals",
-                     db.module_name_, db.functions_.size(), db.globals_.size());
+        // Several exports can name the same procedure, including alternate
+        // entries in its unwind-owned spans. Preserve every alias in the name
+        // index while retaining the chosen display name on AnalyzedFunction.
+        for (const auto& exported : module.exports())
+        {
+            if (exported.name.empty())
+                continue;
+            const auto rva = module.canonical_function_rva(exported.rva).value_or(exported.rva);
+            const auto function = db.func_by_rva_.find(rva);
+            if (function != db.func_by_rva_.end())
+                db.func_by_name_[exported.name] = function->second;
+        }
+
+        SPDLOG_INFO("Analysis complete for '{}': {} functions, {} globals",
+                    db.module_name_, db.functions_.size(), db.globals_.size());
 
         return db;
     }

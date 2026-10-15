@@ -1,8 +1,8 @@
 #include "symfind/dsl_matcher.h"
 
-#include <spdlog/spdlog.h>
 #include <algorithm>
 #include <format>
+#include <spdlog/spdlog.h>
 
 namespace symfind::dsl
 {
@@ -32,7 +32,7 @@ namespace symfind::dsl
 
         // Verify module name
         // TODO: case-insensitive comparison
-        spdlog::info("Matching rule against module '{}'", db.module_name());
+        SPDLOG_INFO("Matching rule against module '{}'", db.module_name());
 
         if (rule.target == TargetKind::Function)
         {
@@ -50,7 +50,7 @@ namespace symfind::dsl
         }
         else if (rule.target == TargetKind::Global)
         {
-            spdlog::info("Iterating {} globals", db.globals().size());
+            SPDLOG_INFO("Iterating {} globals", db.globals().size());
 
             for (const auto& global : db.globals())
             {
@@ -68,7 +68,7 @@ namespace symfind::dsl
         // Apply `take` filtering
         apply_take(results, rule.predicates);
 
-        spdlog::info("Found {} matches", results.size());
+        SPDLOG_INFO("Found {} matches", results.size());
         return results;
     }
 
@@ -79,12 +79,19 @@ namespace symfind::dsl
         for (const auto& pred : predicates)
         {
             if (!pred)
+            {
                 continue;
+            }
             // Skip `take` — it's handled after matching
             if (pred->kind == PredKind::Take)
+            {
                 continue;
+            }
+
             if (!eval_function_pred(db, func, *pred))
+            {
                 return false;
+            }
         }
         return true;
     }
@@ -93,17 +100,25 @@ namespace symfind::dsl
                                   const Global& global,
                                   const std::vector<PredicatePtr>& predicates)
     {
-        spdlog::info("match_global called for global at 0x{:X}, refs={}",
-                     global.rva, global.refs.size());
+        SPDLOG_INFO("match_global called for global at 0x{:X}, refs={}",
+                    global.rva, global.refs.size());
 
         for (const auto& pred : predicates)
         {
             if (!pred)
+            {
                 continue;
+            }
+
             if (pred->kind == PredKind::Take)
+            {
                 continue;
+            }
+
             if (!eval_global_pred(db, global, *pred))
+            {
                 return false;
+            }
         }
         return true;
     }
@@ -114,13 +129,15 @@ namespace symfind::dsl
     {
         switch (pred.kind)
         {
-
         case PredKind::Calls:
         {
             // Check if this function calls the named function
             const auto* target = db.function_by_name(pred.str_value);
             if (!target)
+            {
                 return false;
+            }
+
             return std::find(func.callees.begin(), func.callees.end(),
                              target->rva) != func.callees.end();
         }
@@ -180,8 +197,8 @@ namespace symfind::dsl
             return compare(func.stack_frame_size, pred.cmp_op, pred.int_value);
 
         default:
-            spdlog::warn("Unhandled predicate kind {} for function matching",
-                         static_cast<int>(pred.kind));
+            SPDLOG_WARN("Unhandled predicate kind {} for function matching",
+                        static_cast<int>(pred.kind));
             return false;
         }
     }
@@ -192,23 +209,24 @@ namespace symfind::dsl
     {
         switch (pred.kind)
         {
-
         case PredKind::ReferencedBy:
         {
-            spdlog::info("ReferencedBy: looking for func '{}'", pred.str_value);
+            SPDLOG_INFO("ReferencedBy: looking for func '{}'", pred.str_value);
             const auto* func = db.function_by_name(pred.str_value);
             if (!func)
             {
-                spdlog::info("ReferencedBy: function not found in DB");
+                SPDLOG_INFO("ReferencedBy: function not found in DB");
                 return false;
             }
-            spdlog::info("ReferencedBy: found func at rva 0x{:X}, global has {} refs",
-                         func->rva, global.refs.size());
+            SPDLOG_INFO("ReferencedBy: found func at rva 0x{:X}, global has {} refs",
+                        func->rva, global.refs.size());
             for (const auto& ref : global.refs)
             {
-                spdlog::info("  ref: from_func=0x{:X}, target=0x{:X}", ref.from_func, ref.to_rva);
+                SPDLOG_INFO("  ref: from_func=0x{:X}, target=0x{:X}", ref.from_func, ref.to_rva);
                 if (ref.from_func == func->rva)
+                {
                     return true;
+                }
             }
             return false;
         }
@@ -221,8 +239,8 @@ namespace symfind::dsl
             return pred.child ? !eval_global_pred(db, global, *pred.child) : true;
 
         default:
-            spdlog::warn("Unhandled predicate kind {} for global matching",
-                         static_cast<int>(pred.kind));
+            SPDLOG_WARN("Unhandled predicate kind {} for global matching",
+                        static_cast<int>(pred.kind));
             return false;
         }
     }

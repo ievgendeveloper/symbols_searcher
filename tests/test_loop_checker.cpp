@@ -14,10 +14,10 @@ TEST(DetectLoops, BackwardJumpIsLoop)
     //   0x100C: ret
     std::vector<uint8_t> body = {
         0xB8, 0x00, 0x00, 0x00, 0x00, // mov eax, 0
-        0xFF, 0xC0, // inc eax
-        0x83, 0xF8, 0x0A, // cmp eax, 10
-        0x7C, 0xF9, // jl -7 (back to 0x1005)
-        0xC3 // ret
+        0xFF, 0xC0,                   // inc eax
+        0x83, 0xF8, 0x0A,             // cmp eax, 10
+        0x7C, 0xF9,                   // jl -7 (back to 0x1005)
+        0xC3                          // ret
     };
     bool loop = symfind::detect_loops_in_body(disassembler, body, 0x1000, body.size());
     EXPECT_TRUE(loop);
@@ -35,10 +35,10 @@ TEST(DetectLoops, ForwardJumpIsNotLoop)
     //   0x1009: nop
     //   0x100A: ret
     std::vector<uint8_t> body = {
-        0x83, 0xF8, 0x00, // cmp eax, 0
-        0x74, 0x05, // je +5
+        0x83, 0xF8, 0x00,             // cmp eax, 0
+        0x74, 0x05,                   // je +5
         0x90, 0x90, 0x90, 0x90, 0x90, // 5x nop
-        0xC3 // ret
+        0xC3                          // ret
     };
     bool loop = symfind::detect_loops_in_body(disassembler, body, 0x1000, body.size());
     EXPECT_FALSE(loop);
@@ -109,6 +109,6 @@ TEST(AnalysisIntegration, SomeFunctionsHaveLoopsInNtdll)
     ASSERT_GT(total_substantial, 0);
     EXPECT_GT(with_loops, 0)
         << "Expected at least some looping functions in ntdll";
-    spdlog::info("ntdll: {}/{} substantial functions have loops",
-                 with_loops, total_substantial);
+    SPDLOG_INFO("ntdll: {}/{} substantial functions have loops",
+                with_loops, total_substantial);
 }

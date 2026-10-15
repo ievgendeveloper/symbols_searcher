@@ -2,81 +2,97 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
+#include <span>
 #include <string>
 #include <vector>
-#include <span>
-#include <optional>
 
-namespace symfind {
+namespace symfind
+{
+    /// One actual code span; gaps between spans do not belong to the function.
+    struct FunctionRange
+    {
+            uint64_t rva = 0;
+            uint64_t size = 0;
+    };
+
     struct FunctionBounds
     {
             uint64_t rva;
-            uint64_t size;
+            uint64_t size;                     ///< Size of the primary contiguous span, not the sum of ranges.
+            std::vector<FunctionRange> ranges; ///< Primary and verified chained-unwind spans.
     };
 
     /// Represents an exported symbol from a PE module.
-struct ExportEntry {
-    std::string name;
-    uint64_t    rva = 0;       ///< Relative virtual address
-    uint16_t    ordinal = 0;
-};
+    struct ExportEntry
+    {
+            std::string name;
+            uint64_t rva = 0; ///< Relative virtual address
+            uint16_t ordinal = 0;
+    };
 
-/// Represents a PE section.
-struct Section {
-    std::string name;
-    uint64_t    virtual_address = 0;
-    uint64_t    virtual_size = 0;
-    uint64_t    raw_offset = 0;
-    uint64_t    raw_size = 0;
-    bool        executable = false;
-    bool        readable = false;
-    bool        writable = false;
-};
+    /// Represents a PE section.
+    struct Section
+    {
+            std::string name;
+            uint64_t virtual_address = 0;
+            uint64_t virtual_size = 0;
+            uint64_t raw_offset = 0;
+            uint64_t raw_size = 0;
+            bool executable = false;
+            bool readable = false;
+            bool writable = false;
+    };
 
-/// Wraps a PE module (loaded from file or memory).
-/// Uses LIEF internally for PE parsing.
-class PeModule {
-public:
-    /// Load from file on disk.
-    [[nodiscard]] static std::optional<PeModule> from_file(const std::string& path);
+    /// Wraps a PE module (loaded from file or memory).
+    /// Uses LIEF internally for PE parsing.
+    class PeModule
+    {
+        public:
+            /// Load from file on disk.
+            [[nodiscard]] static std::optional<PeModule> from_file(const std::string& path);
 
-    /// Load from raw bytes already in memory.
-    [[nodiscard]] static std::optional<PeModule> from_memory(std::span<const uint8_t> data,
-                                                              uint64_t base_address = 0);
+            /// Load from raw bytes already in memory.
+            [[nodiscard]] static std::optional<PeModule> from_memory(std::span<const uint8_t> data,
+                                                                     uint64_t base_address = 0);
 
-    /// Module name (e.g. "ntdll.dll").
-    [[nodiscard]] const std::string& name() const;
+            /// Module name (e.g. "ntdll.dll").
+            [[nodiscard]] const std::string& name() const;
 
-    /// Image base address.
-    [[nodiscard]] uint64_t image_base() const;
+            /// Image base address.
+            [[nodiscard]] uint64_t image_base() const;
 
-    /// All exports.
-    [[nodiscard]] const std::vector<ExportEntry>& exports() const;
+            /// All exports.
+            [[nodiscard]] const std::vector<ExportEntry>& exports() const;
 
-    /// All sections.
-    [[nodiscard]] const std::vector<Section>& sections() const;
+            /// All sections.
+            [[nodiscard]] const std::vector<Section>& sections() const;
 
-    /// Check if an RVA belongs to an exported symbol.
-    [[nodiscard]] bool is_exported(uint64_t rva) const;
+            /// Check if an RVA belongs to an exported symbol.
+            [[nodiscard]] bool is_exported(uint64_t rva) const;
 
-    /// Look up export by name. Returns RVA or nullopt.
-    [[nodiscard]] std::optional<uint64_t> export_rva(const std::string& name) const;
+            /// Look up export by name. Returns RVA or nullopt.
+            [[nodiscard]] std::optional<uint64_t> export_rva(const std::string& name) const;
 
-    /// Read bytes at a given RVA from the mapped image.
-    [[nodiscard]] std::span<const uint8_t> read_at(uint64_t rva, size_t length) const;
+            /// Read bytes at a given RVA from the mapped image.
+            [[nodiscard]] std::span<const uint8_t> read_at(uint64_t rva, size_t length) const;
 
-    /// Get the raw mapped image bytes.
-    [[nodiscard]] std::span<const uint8_t> raw_image() const;
+            /// Get the raw mapped image bytes.
+            [[nodiscard]] std::span<const uint8_t> raw_image() const;
 
-    /**
-     * @brief Get the full enumeration of RVA of function addresses and the size of functions
-     * @return the vector of structs with rva of the beginning and size of function
-     */
-    [[nodiscard]] const std::vector<FunctionBounds>& exception_functions() const;
+            /**
+             * @brief Get the full enumeration of RVA of function addresses and the size of functions
+             * @return the vector of structs with rva of the beginning and size of function
+             */
+            [[nodiscard]] const std::vector<FunctionBounds>& exception_functions() const;
 
-private:
-    struct Impl;
-    std::shared_ptr<Impl> impl_;
-};
+            /// Canonical procedure entry for an address in a verified code span.
+            /// Ranges are end-exclusive; unknown/ambiguous addresses return nullopt.
+            [[nodiscard]] std::optional<uint64_t> canonical_function_rva(uint64_t address) const;
+
+        private:
+            struct Impl;
+            std::shared_ptr<Impl> impl_;
+    };
 
 } // namespace symfind

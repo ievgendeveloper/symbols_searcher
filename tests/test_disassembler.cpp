@@ -1,5 +1,5 @@
-#include <gtest/gtest.h>
 #include "symfind/disassembler.h"
+#include <gtest/gtest.h>
 
 #include <cstdint>
 #include <span>
@@ -195,8 +195,7 @@ TEST(Disassembler, DecodesTypicalFunctionPrologue)
         0x53,
         0x48, 0x83, 0xEC, 0x20,
         0x48, 0x8B, 0xD9,
-        0xC3
-    };
+        0xC3};
     auto result = disasm.disassemble(span_of(bytes), 0x4000);
 
     ASSERT_EQ(result.size(), 4u);
