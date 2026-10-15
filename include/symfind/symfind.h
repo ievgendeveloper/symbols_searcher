@@ -9,10 +9,10 @@
 ///   3. Parse a DSL rule:       auto rule = DslParser::parse(script);
 ///   4. Match:                  auto results = DslMatcher::match(db, rule);
 
-#include "symfind/pe_module.h"
-#include "symfind/disassembler.h"
-#include "symfind/function_finder.h"
 #include "symfind/analysis_db.h"
+#include "symfind/disassembler.h"
 #include "symfind/dsl_lexer.h"
-#include "symfind/dsl_parser.h"
 #include "symfind/dsl_matcher.h"
+#include "symfind/dsl_parser.h"
+#include "symfind/function_finder.h"
+#include "symfind/pe_module.h"

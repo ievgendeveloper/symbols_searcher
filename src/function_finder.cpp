@@ -1,8 +1,8 @@
 #include "symfind/function_finder.h"
 
-#include <spdlog/spdlog.h>
 #include <algorithm>
 #include <map>
+#include <spdlog/spdlog.h>
 
 namespace symfind
 {
@@ -26,7 +26,7 @@ namespace symfind
         for (const auto& exp : module.exports())
         {
             Function f;
-            f.rva = exp.rva;
+            f.rva = module.canonical_function_rva(exp.rva).value_or(exp.rva);
             f.exported = true;
             f.export_name = exp.name;
             out.push_back(f);
@@ -40,7 +40,7 @@ namespace symfind
         const auto& limits = module.exception_functions();
         for (const auto& element : limits)
         {
-            out.emplace_back(element.rva, element.size, false, std::string());
+            out.emplace_back(element.rva, element.size, false, std::string(), element.ranges);
             ++numberOfFoundedFunctions;
         }
 
@@ -70,7 +70,9 @@ namespace symfind
                     continue;
                 }
 
-                out.emplace_back(instruction.branch_target, 0, false, std::string());
+                const auto target = module.canonical_function_rva(instruction.branch_target)
+                                        .value_or(instruction.branch_target);
+                out.emplace_back(target, 0, false, std::string());
                 ++numberOfFoundedFunctions;
             }
         }
@@ -87,7 +89,8 @@ namespace symfind
         }
 
         std::sort(funcs.begin(), funcs.end(),
-                  [](const Function& a, const Function& b) { return a.rva < b.rva; });
+                  [](const Function& a, const Function& b)
+                  { return a.rva < b.rva; });
 
         // Single pass: merge runs of equal-RVA entries into the leftmost one,
         // taking the most informative field from each.
@@ -110,6 +113,10 @@ namespace symfind
                 if (funcs[write].export_name.empty())
                 {
                     funcs[write].export_name = std::move(funcs[read].export_name);
+                }
+                if (funcs[write].ranges.empty())
+                {
+                    funcs[write].ranges = std::move(funcs[read].ranges);
                 }
             }
             else
@@ -140,14 +147,14 @@ namespace symfind
         }
 
         disasm.disassemble_cb(body, func_rva, [&](const Instruction& instruction) -> bool
-        {
+                              {
             if (instruction.is_call && instruction.branch_target != 0)
             {
-                result.push_back(instruction.branch_target);
+                result.push_back(module.canonical_function_rva(instruction.branch_target)
+                                     .value_or(instruction.branch_target));
             }
 
-            return true;
-        });
+            return true; });
 
         return result;
     }
@@ -230,7 +237,7 @@ namespace symfind
         }
 
         disassembler.disassemble_cb(body, func_rva, [&](const Instruction& instruction) -> bool
-        {
+                                    {
             if (instruction.mem_absolute == 0)
             {
                 return true; // not RIP-relative
@@ -264,8 +271,7 @@ namespace symfind
             }
 
             references.push_back(crossReference);
-            return true;
-        });
+            return true; });
 
         return references;
     }
@@ -312,7 +318,7 @@ namespace symfind
         int instructionCounter = 0;
 
         disassembler.disassemble_cb(body, functionRva, [&](const Instruction& instruction)
-        {
+                                    {
             if (instruction.is_sub_rsp_imm)
             {
                 frameSize = static_cast<uint32_t>(instruction.imm_value);
@@ -325,8 +331,7 @@ namespace symfind
                 return false;
             }
 
-            return true;
-        });
+            return true; });
 
         return frameSize;
     }
@@ -343,7 +348,7 @@ namespace symfind
         bool hasLoop = false;
 
         disassembler.disassemble_cb(body, functionRva, [&](const Instruction& instruction) -> bool
-        {
+                                    {
             if (!instruction.is_jump)
             {
                 return true; // not a branch
@@ -362,8 +367,7 @@ namespace symfind
                 hasLoop = true;
                 return false; // found one, stop scanning
             }
-            return true;
-        });
+            return true; });
 
         return hasLoop;
     }
