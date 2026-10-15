@@ -1,5 +1,5 @@
-#include <gtest/gtest.h>
 #include "symfind/dsl_parser.h"
+#include <gtest/gtest.h>
 
 using namespace symfind::dsl;
 

@@ -17,4 +17,6 @@ find function in "ntdll" where
 find function in "ntdll" where
     called_by "LdrLoadDll";
     not exported;
-    calls "RtlGetCurrentServiceSessionId";
+    stack_frame_size >= 0x80;
+    stack_frame_size <= 0x200;
+    calls_count >= 4;

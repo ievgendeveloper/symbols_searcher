@@ -2,6 +2,7 @@
 
 #include <gtest/gtest.h>
 
+#include "ntdll_symbol_rules.h"
 #include "symfind/analysis_db.h"
 #include "symfind/dsl_matcher.h"
 #include "symfind/dsl_parser.h"
@@ -87,19 +88,15 @@ TEST(AnalysisIntegration, FindLdrpInitializeInRealNtdll)
     EXPECT_GT(thunk->callees.size(), 0u);
 
     // Run our DSL rule
-    auto rule = symfind::dsl::DslParser::parse(R"(
-        find function in "ntdll" where
-            called_by "LdrInitializeThunk";
-            not exported;
-            take first;
-    )");
+    auto rule = symfind::dsl::DslParser::parse(
+        symfind::validation::ntdll_rule_for("LdrpInitialize"));
     ASSERT_TRUE(rule.has_value());
 
     auto results = symfind::dsl::DslMatcher::match(db, *rule);
     ASSERT_GE(results.size(), 1u);
 
     // The match should be inside .text
-    spdlog::info("Found LdrpInitialize candidate at RVA 0x{:X}", results[0].rva);
+    SPDLOG_INFO("Found LdrpInitialize candidate at RVA 0x{:X}", results[0].rva);
 }
 
 TEST(CollectDataRefs, FindsLeaInRtlDecompressBuffer)
@@ -186,24 +183,20 @@ TEST(AnalysisIntegration, FindLdrpInitializeInRealNtdll_from_memory)
     const auto* thunk = db.function_by_name("LdrInitializeThunk");
     ASSERT_NE(thunk, nullptr);
     EXPECT_GT(thunk->callees.size(), 0u);
-    auto rule = symfind::dsl::DslParser::parse(R"(
-        find function in "ntdll" where
-            called_by "LdrInitializeThunk";
-            not exported;
-            take first;
-    )");
+    auto rule = symfind::dsl::DslParser::parse(
+        symfind::validation::ntdll_rule_for("LdrpInitialize"));
     ASSERT_TRUE(rule.has_value());
     auto results = symfind::dsl::DslMatcher::match(db, *rule);
     ASSERT_GE(results.size(), 1u);
-    spdlog::info("Found LdrpInitialize candidate at RVA 0x{:X} (from_memory)", results[0].rva);
+    SPDLOG_INFO("Found LdrpInitialize candidate at RVA 0x{:X} (from_memory)", results[0].rva);
 }
 
 TEST(CollectDataRefs, FindsLeaInRtlDecompressBuffer_from_memory)
 {
     const auto buffer = ReadFileFromDisk(LR"(C:\Windows\System32\ntdll.dll)");
     ASSERT_FALSE(buffer.empty());
-    
-     const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(buffer.data());
+
+    const auto* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(buffer.data());
     const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS64*>(
         buffer.data() + dos->e_lfanew);
     const uint64_t ntdll_preferred_base = nt->OptionalHeader.ImageBase;

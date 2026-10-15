@@ -1,15 +1,17 @@
-#include <gtest/gtest.h>
 #include "symfind/dsl_lexer.h"
+#include <gtest/gtest.h>
 
 using namespace symfind::dsl;
 
-TEST(DslLexer, EmptyInput) {
+TEST(DslLexer, EmptyInput)
+{
     Lexer lexer("");
     auto tok = lexer.next();
     EXPECT_EQ(tok.type, TokenType::Eof);
 }
 
-TEST(DslLexer, Keywords) {
+TEST(DslLexer, Keywords)
+{
     Lexer lexer("find function in where calls called_by not exported has_loop take first");
     auto tokens = lexer.tokenize_all();
 
@@ -27,28 +29,32 @@ TEST(DslLexer, Keywords) {
     EXPECT_EQ(tokens[10].type, TokenType::First);
 }
 
-TEST(DslLexer, StringLiteral) {
+TEST(DslLexer, StringLiteral)
+{
     Lexer lexer(R"("ntdll.dll")");
     auto tok = lexer.next();
     EXPECT_EQ(tok.type, TokenType::String);
     EXPECT_EQ(tok.str_value, "ntdll.dll");
 }
 
-TEST(DslLexer, IntegerDecimal) {
+TEST(DslLexer, IntegerDecimal)
+{
     Lexer lexer("42");
     auto tok = lexer.next();
     EXPECT_EQ(tok.type, TokenType::Integer);
     EXPECT_EQ(tok.int_value, 42);
 }
 
-TEST(DslLexer, IntegerHex) {
+TEST(DslLexer, IntegerHex)
+{
     Lexer lexer("0xFF");
     auto tok = lexer.next();
     EXPECT_EQ(tok.type, TokenType::Integer);
     EXPECT_EQ(tok.int_value, 0xFF);
 }
 
-TEST(DslLexer, Operators) {
+TEST(DslLexer, Operators)
+{
     Lexer lexer(">= <= == > <");
     auto tokens = lexer.tokenize_all();
     ASSERT_GE(tokens.size(), 5u);
@@ -59,7 +65,8 @@ TEST(DslLexer, Operators) {
     EXPECT_EQ(tokens[4].type, TokenType::Lt);
 }
 
-TEST(DslLexer, Delimiters) {
+TEST(DslLexer, Delimiters)
+{
     Lexer lexer("()[]");
     auto tokens = lexer.tokenize_all();
     ASSERT_GE(tokens.size(), 4u);
@@ -69,7 +76,8 @@ TEST(DslLexer, Delimiters) {
     EXPECT_EQ(tokens[3].type, TokenType::RBracket);
 }
 
-TEST(DslLexer, CommentsSkipped) {
+TEST(DslLexer, CommentsSkipped)
+{
     Lexer lexer("find # this is a comment\nfunction");
     auto tokens = lexer.tokenize_all();
     ASSERT_GE(tokens.size(), 2u);
@@ -77,7 +85,8 @@ TEST(DslLexer, CommentsSkipped) {
     EXPECT_EQ(tokens[1].type, TokenType::Function);
 }
 
-TEST(DslLexer, FullRule) {
+TEST(DslLexer, FullRule)
+{
     const char* input = R"(
         find function in "ntdll" where
             called_by "LdrLoadDll"
@@ -88,12 +97,14 @@ TEST(DslLexer, FullRule) {
     auto tokens = lexer.tokenize_all();
 
     // Should tokenize without errors
-    for (const auto& t : tokens) {
+    for (const auto& t : tokens)
+    {
         EXPECT_NE(t.type, TokenType::Error) << "Error at line " << t.line;
     }
 }
 
-TEST(DslLexer, LineTracking) {
+TEST(DslLexer, LineTracking)
+{
     Lexer lexer("find\nfunction\nin");
     auto tokens = lexer.tokenize_all();
     EXPECT_EQ(tokens[0].line, 1);

@@ -28,8 +28,9 @@
             "binaryDir": "${sourceDir}/build/release-min",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "MinSizeRel",
-                "SYMFIND_BUILD_TESTS": "ON",
-                "SYMFIND_BUILD_EXAMPLES": "ON"
+                "SYMFIND_BUILD_TESTS": "OFF",
+                "SYMFIND_BUILD_EXAMPLES": "OFF",
+                "SYMFIND_BUILD_PDB_TOOLS": "OFF"
             }
         }
     ],
@@ -51,17 +52,26 @@
         {
             "name": "debug",
             "configurePreset": "debug",
-            "output": { "outputOnFailure": true }
+            "output": { "outputOnFailure": true },
+            "filter": { "exclude": { "label": "network" } }
         },
         {
             "name": "release",
             "configurePreset": "release",
-            "output": { "outputOnFailure": true }
+            "output": { "outputOnFailure": true },
+            "filter": { "exclude": { "label": "network" } }
         },
         {
             "name": "release-min",
             "configurePreset": "release-min",
             "output": { "outputOnFailure": true }
+        },
+        {
+            "name": "network",
+            "configurePreset": "debug",
+            "output": { "outputOnFailure": true },
+            "filter": { "include": { "label": "network" } },
+            "execution": { "noTestsAction": "error" }
         }
     ]
 }
