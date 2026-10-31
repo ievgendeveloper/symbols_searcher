@@ -15,30 +15,36 @@
 #include <cstdlib>
 #include <utility>
 
-using namespace symfind::dsl;
-
-struct PredRaw     { Predicate* p; };
-struct PredListRaw { std::vector<PredicatePtr>* list; };
+struct PredRaw
+{
+        symfind::dsl::Predicate* predicate;
+};
+struct PredListRaw
+{
+        std::vector<symfind::dsl::PredicatePtr>* predicates;
+};
 }
 
-%token_type { Token }
+%token_type { symfind::dsl::Token }
 
 %type predicate         { PredRaw }
 %type pred_list         { PredListRaw }
-%type cmp_op            { CmpOp }
-%type target_kind       { TargetKind }
+%type cmp_op            { symfind::dsl::CmpOp }
+%type target_kind       { symfind::dsl::TargetKind }
 
 %token_prefix TK_
 
-%extra_argument { ParserContext* ctx }
+%extra_argument { symfind::dsl::ParserContext* parserContext }
 
-%syntax_error {
-    ctx->had_error = true;
-    ctx->error_line = TOKEN.line;
+%syntax_error
+{
+    parserContext->hadError = true;
+    parserContext->errorLine = TOKEN.line;
 }
 
-%stack_overflow {
-    ctx->had_error = true;
+%stack_overflow
+{
+    parserContext->hadError = true;
 }
 
 /* ─── Grammar ─────────────────────────────────────── */
@@ -47,126 +53,166 @@ struct PredListRaw { std::vector<PredicatePtr>* list; };
 
 program ::= rule.
 
-rule ::= FIND target_kind(K) IN STRING(M) WHERE pred_list(L). {
-    ctx->result.target = K;
-    ctx->result.module_name = std::string(M.str_value);
-    for (auto& p : *L.list) {
-        ctx->result.predicates.push_back(std::move(p));
+rule ::= FIND target_kind(targetKindValue) IN STRING(moduleNameToken) WHERE
+    pred_list(predicateListNode).
+{
+    parserContext->result.target = targetKindValue;
+    parserContext->result.moduleName = std::string(moduleNameToken.strValue);
+    for (auto& predicate : *predicateListNode.predicates)
+    {
+        parserContext->result.predicates.push_back(std::move(predicate));
     }
-    delete L.list;
+    delete predicateListNode.predicates;
 }
 
-target_kind(K) ::= FUNCTION. { K = TargetKind::Function; }
-target_kind(K) ::= GLOBAL.   { K = TargetKind::Global; }
+target_kind(targetKindValue) ::= FUNCTION.
+{
+    targetKindValue = symfind::dsl::TargetKind::Function;
+}
+target_kind(targetKindValue) ::= GLOBAL.
+{
+    targetKindValue = symfind::dsl::TargetKind::Global;
+}
 
 /* One or more SEMI-terminated predicates */
-pred_list(L) ::= predicate(P) SEMI. {
-    L.list = new std::vector<PredicatePtr>();
-    L.list->emplace_back(P.p);
+pred_list(predicateListNode) ::= predicate(predicateNode) SEMI.
+{
+    predicateListNode.predicates = new std::vector<symfind::dsl::PredicatePtr>();
+    predicateListNode.predicates->emplace_back(predicateNode.predicate);
 }
-pred_list(L) ::= pred_list(L2) predicate(P) SEMI. {
-    L2.list->emplace_back(P.p);
-    L = L2;
+pred_list(predicateListNode) ::= pred_list(previousPredicateList) predicate(predicateNode) SEMI.
+{
+    previousPredicateList.predicates->emplace_back(predicateNode.predicate);
+    predicateListNode = previousPredicateList;
 }
 
 /* ─── Predicate variants ─────────────────────────── */
 
-predicate(P) ::= CALLS STRING(S). {
-    auto* p = new Predicate;
-    p->kind = PredKind::Calls;
-    p->str_value = std::string(S.str_value);
-    P.p = p;
+predicate(predicateNode) ::= CALLS STRING(symbolNameToken).
+{
+    auto* predicate = new symfind::dsl::Predicate;
+    predicate->kind = symfind::dsl::PredKind::Calls;
+    predicate->strValue = std::string(symbolNameToken.strValue);
+    predicateNode.predicate = predicate;
 }
 
-predicate(P) ::= CALLED_BY STRING(S). {
-    auto* p = new Predicate;
-    p->kind = PredKind::CalledBy;
-    p->str_value = std::string(S.str_value);
-    P.p = p;
+predicate(predicateNode) ::= CALLED_BY STRING(symbolNameToken).
+{
+    auto* predicate = new symfind::dsl::Predicate;
+    predicate->kind = symfind::dsl::PredKind::CalledBy;
+    predicate->strValue = std::string(symbolNameToken.strValue);
+    predicateNode.predicate = predicate;
 }
-predicate(P) ::= CALLED_BY LPAREN pred_list(Inner) RPAREN. {
-    auto* p = new Predicate;
-    p->kind = PredKind::CalledByBlock;
-    for (auto& cp : *Inner.list) {
-        p->children.push_back(std::move(cp));
+predicate(predicateNode) ::= CALLED_BY LPAREN pred_list(innerNode) RPAREN.
+{
+    auto* predicate = new symfind::dsl::Predicate;
+    predicate->kind = symfind::dsl::PredKind::CalledByBlock;
+    for (auto& childPredicate : *innerNode.predicates)
+    {
+        predicate->children.push_back(std::move(childPredicate));
     }
-    delete Inner.list;
-    P.p = p;
+    delete innerNode.predicates;
+    predicateNode.predicate = predicate;
 }
 
-predicate(P) ::= REFERENCED_BY STRING(S). {
-    auto* p = new Predicate;
-    p->kind = PredKind::ReferencedBy;
-    p->str_value = std::string(S.str_value);
-    P.p = p;
+predicate(predicateNode) ::= REFERENCED_BY STRING(symbolNameToken).
+{
+    auto* predicate = new symfind::dsl::Predicate;
+    predicate->kind = symfind::dsl::PredKind::ReferencedBy;
+    predicate->strValue = std::string(symbolNameToken.strValue);
+    predicateNode.predicate = predicate;
 }
 
-predicate(P) ::= EXPORTED. {
-    auto* p = new Predicate;
-    p->kind = PredKind::Exported;
-    P.p = p;
+predicate(predicateNode) ::= EXPORTED.
+{
+    auto* predicate = new symfind::dsl::Predicate;
+    predicate->kind = symfind::dsl::PredKind::Exported;
+    predicateNode.predicate = predicate;
 }
-predicate(P) ::= NOT predicate(Inner). {
-    auto* p = new Predicate;
-    p->kind = PredKind::Not;
-    p->child.reset(Inner.p);
-    P.p = p;
-}
-
-predicate(P) ::= HAS_LOOP. {
-    auto* p = new Predicate;
-    p->kind = PredKind::HasLoop;
-    P.p = p;
+predicate(predicateNode) ::= NOT predicate(innerNode).
+{
+    auto* predicate = new symfind::dsl::Predicate;
+    predicate->kind = symfind::dsl::PredKind::Not;
+    predicate->child.reset(innerNode.predicate);
+    predicateNode.predicate = predicate;
 }
 
-predicate(P) ::= TAKE FIRST. {
-    auto* p = new Predicate;
-    p->kind = PredKind::Take;
-    p->int_value = 1;
-    P.p = p;
-}
-predicate(P) ::= TAKE INTEGER(N). {
-    auto* p = new Predicate;
-    p->kind = PredKind::Take;
-    p->int_value = N.int_value;
-    P.p = p;
+predicate(predicateNode) ::= HAS_LOOP.
+{
+    auto* predicate = new symfind::dsl::Predicate;
+    predicate->kind = symfind::dsl::PredKind::HasLoop;
+    predicateNode.predicate = predicate;
 }
 
-predicate(P) ::= CALLS_COUNT cmp_op(Op) INTEGER(N). {
-    auto* p = new Predicate;
-    p->kind = PredKind::CallsCount;
-    p->cmp_op = Op;
-    p->int_value = N.int_value;
-    P.p = p;
+predicate(predicateNode) ::= TAKE FIRST.
+{
+    auto* predicate = new symfind::dsl::Predicate;
+    predicate->kind = symfind::dsl::PredKind::Take;
+    predicate->intValue = 1;
+    predicateNode.predicate = predicate;
+}
+predicate(predicateNode) ::= TAKE INTEGER(integerToken).
+{
+    auto* predicate = new symfind::dsl::Predicate;
+    predicate->kind = symfind::dsl::PredKind::Take;
+    predicate->intValue = integerToken.intValue;
+    predicateNode.predicate = predicate;
 }
 
-predicate(P) ::= XREFS COUNT cmp_op(Op) INTEGER(N). {
-    auto* p = new Predicate;
-    p->kind = PredKind::Xrefs;
-    p->cmp_op = Op;
-    p->int_value = N.int_value;
-    P.p = p;
+predicate(predicateNode) ::= CALLS_COUNT cmp_op(comparisonOperator) INTEGER(integerToken).
+{
+    auto* predicate = new symfind::dsl::Predicate;
+    predicate->kind = symfind::dsl::PredKind::CallsCount;
+    predicate->cmpOp = comparisonOperator;
+    predicate->intValue = integerToken.intValue;
+    predicateNode.predicate = predicate;
 }
 
-predicate(P) ::= STACK_FRAME_SIZE cmp_op(Op) INTEGER(N). {
-    auto* p = new Predicate;
-    p->kind = PredKind::StackFrameSize;
-    p->cmp_op = Op;
-    p->int_value = N.int_value;
-    P.p = p;
+predicate(predicateNode) ::= XREFS COUNT cmp_op(comparisonOperator) INTEGER(integerToken).
+{
+    auto* predicate = new symfind::dsl::Predicate;
+    predicate->kind = symfind::dsl::PredKind::Xrefs;
+    predicate->cmpOp = comparisonOperator;
+    predicate->intValue = integerToken.intValue;
+    predicateNode.predicate = predicate;
 }
 
-predicate(P) ::= READS_REG STRING(S). {
-    auto* p = new Predicate;
-    p->kind = PredKind::ReadsReg;
-    p->str_value = std::string(S.str_value);
-    P.p = p;
+predicate(predicateNode) ::= STACK_FRAME_SIZE cmp_op(comparisonOperator) INTEGER(integerToken).
+{
+    auto* predicate = new symfind::dsl::Predicate;
+    predicate->kind = symfind::dsl::PredKind::StackFrameSize;
+    predicate->cmpOp = comparisonOperator;
+    predicate->intValue = integerToken.intValue;
+    predicateNode.predicate = predicate;
+}
+
+predicate(predicateNode) ::= READS_REG STRING(symbolNameToken).
+{
+    auto* predicate = new symfind::dsl::Predicate;
+    predicate->kind = symfind::dsl::PredKind::ReadsReg;
+    predicate->strValue = std::string(symbolNameToken.strValue);
+    predicateNode.predicate = predicate;
 }
 
 /* ─── Comparison operators ───────────────────────── */
 
-cmp_op(O) ::= GTE. { O = CmpOp::Gte; }
-cmp_op(O) ::= LTE. { O = CmpOp::Lte; }
-cmp_op(O) ::= EQ.  { O = CmpOp::Eq;  }
-cmp_op(O) ::= GT.  { O = CmpOp::Gt;  }
-cmp_op(O) ::= LT.  { O = CmpOp::Lt;  }
+cmp_op(comparisonOperator) ::= GTE.
+{
+    comparisonOperator = symfind::dsl::CmpOp::Gte;
+}
+cmp_op(comparisonOperator) ::= LTE.
+{
+    comparisonOperator = symfind::dsl::CmpOp::Lte;
+}
+cmp_op(comparisonOperator) ::= EQ.
+{
+    comparisonOperator = symfind::dsl::CmpOp::Eq;
+}
+cmp_op(comparisonOperator) ::= GT.
+{
+    comparisonOperator = symfind::dsl::CmpOp::Gt;
+}
+cmp_op(comparisonOperator) ::= LT.
+{
+    comparisonOperator = symfind::dsl::CmpOp::Lt;
+}

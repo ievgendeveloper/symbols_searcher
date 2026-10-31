@@ -3,16 +3,19 @@
 /// @file symfind.h
 /// @brief Public API for the symfind library.
 ///
-/// Usage:
-///   1. Load a PE module:       PeModule mod("ntdll.dll");
-///   2. Run analysis:           AnalysisDb db = analyze(mod);
-///   3. Parse a DSL rule:       auto rule = DslParser::parse(script);
-///   4. Match:                  auto results = DslMatcher::match(db, rule);
+/// Usage (ruleSource contains a DSL rule):
+///   auto peModule = symfind::PeModule::FromFile("ntdll.dll");
+///   auto parsedRule = symfind::dsl::DslParser::Parse(ruleSource);
+///   if (peModule && parsedRule)
+///   {
+///       auto analysisDatabase = symfind::AnalysisDb::Analyze(*peModule);
+///       auto matchedSymbols = symfind::dsl::DslMatcher::Match(analysisDatabase, *parsedRule);
+///   }
 
-#include "symfind/pe_module.h"
-#include "symfind/disassembler.h"
-#include "symfind/function_finder.h"
 #include "symfind/analysis_db.h"
+#include "symfind/disassembler.h"
 #include "symfind/dsl_lexer.h"
-#include "symfind/dsl_parser.h"
 #include "symfind/dsl_matcher.h"
+#include "symfind/dsl_parser.h"
+#include "symfind/function_finder.h"
+#include "symfind/pe_module.h"

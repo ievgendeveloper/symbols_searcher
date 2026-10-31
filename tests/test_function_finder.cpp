@@ -2,91 +2,231 @@
 
 #include <gtest/gtest.h>
 
+#include "ntdll_symbol_rules.h"
 #include "symfind/analysis_db.h"
 #include "symfind/dsl_matcher.h"
 #include "symfind/dsl_parser.h"
 #include "symfind/function_finder.h"
 
-TEST(FunctionFinder, Search_functions_by_exceptions_parsing_in_ntdll)
+#include <algorithm>
+#include <string>
+#include <vector>
+
+#include <Windows.h>
+
+namespace
 {
-    auto module = symfind::PeModule::from_file(R"(C:\Windows\System32\ntdll.dll)");
-    ASSERT_TRUE(module.has_value());
+    std::vector<uint8_t> ReadFileFromDisk(const std::wstring& filePath)
+    {
+        const auto fileHandle =
+            ::CreateFileW(filePath.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
+                          FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (fileHandle == INVALID_HANDLE_VALUE)
+        {
+            return {};
+        }
 
-    std::vector<symfind::Function> functions;
-    symfind::FunctionFinder::from_exception_directory(*module, functions);
+        LARGE_INTEGER fileSize{};
+        if (!::GetFileSizeEx(fileHandle, &fileSize))
+        {
+            ::CloseHandle(fileHandle);
+            return {};
+        }
 
-    EXPECT_GT(functions.size(), 10);
+        std::vector<uint8_t> fileBytes(static_cast<size_t>(fileSize.QuadPart));
+        DWORD bytesRead = 0;
+        const auto readSucceeded =
+            ::ReadFile(fileHandle, fileBytes.data(), static_cast<DWORD>(fileBytes.size()),
+                       &bytesRead, nullptr);
+        ::CloseHandle(fileHandle);
+
+        if (!readSucceeded || bytesRead != fileBytes.size())
+        {
+            return {};
+        }
+
+        return fileBytes;
+    }
+} // namespace
+
+TEST(FunctionFinder, SearchFunctionsByExceptionsParsingInNtdll)
+{
+    auto ntdllModule = symfind::PeModule::FromFile(R"(C:\Windows\System32\ntdll.dll)");
+    ASSERT_TRUE(ntdllModule.has_value());
+
+    std::vector<symfind::Function> discoveredFunctions;
+    symfind::FunctionFinder::FromExceptionDirectory(*ntdllModule, discoveredFunctions);
+
+    EXPECT_GT(discoveredFunctions.size(), 10);
 }
 
-TEST(FunctionFinder, Search_functions_by_disassembling_code_sections)
+TEST(FunctionFinder, SearchFunctionsByDisassemblingCodeSections)
 {
-    auto module = symfind::PeModule::from_file(R"(C:\Windows\System32\ntdll.dll)");
-    ASSERT_TRUE(module.has_value());
+    auto ntdllModule = symfind::PeModule::FromFile(R"(C:\Windows\System32\ntdll.dll)");
+    ASSERT_TRUE(ntdllModule.has_value());
 
-    std::vector<symfind::Function> functions;
+    std::vector<symfind::Function> discoveredFunctions;
     const symfind::Disassembler disassembler;
-    symfind::FunctionFinder::from_call_targets(*module, disassembler, functions);
+    symfind::FunctionFinder::FromCallTargets(*ntdllModule, disassembler, discoveredFunctions);
 
-    EXPECT_GT(functions.size(), 10);
+    EXPECT_GT(discoveredFunctions.size(), 10);
 }
 
 TEST(AnalysisIntegration, FindLdrpInitializeInRealNtdll)
 {
-    auto module = symfind::PeModule::from_file(R"(C:\Windows\System32\ntdll.dll)");
-    ASSERT_TRUE(module.has_value());
+    auto ntdllModule = symfind::PeModule::FromFile(R"(C:\Windows\System32\ntdll.dll)");
+    ASSERT_TRUE(ntdllModule.has_value());
 
-    auto db = symfind::AnalysisDb::analyze(*module);
-    EXPECT_GT(db.functions().size(), 100u);
+    auto analysisDatabase = symfind::AnalysisDb::Analyze(*ntdllModule);
+    EXPECT_GT(analysisDatabase.Functions().size(), 100u);
 
     // LdrInitializeThunk should have at least one callee
-    const auto* thunk = db.function_by_name("LdrInitializeThunk");
-    ASSERT_NE(thunk, nullptr);
-    EXPECT_GT(thunk->callees.size(), 0u);
+    const auto* initializationThunk = analysisDatabase.FunctionByName("LdrInitializeThunk");
+    ASSERT_NE(initializationThunk, nullptr);
+    EXPECT_GT(initializationThunk->callees.size(), 0u);
 
     // Run our DSL rule
-    auto rule = symfind::dsl::DslParser::parse(R"(
-        find function in "ntdll" where
-            called_by "LdrInitializeThunk";
-            not exported;
-            take first;
-    )");
-    ASSERT_TRUE(rule.has_value());
+    auto symbolRule =
+        symfind::dsl::DslParser::Parse(symfind::validation::NtdllRuleFor("LdrpInitialize"));
+    ASSERT_TRUE(symbolRule.has_value());
 
-    auto results = symfind::dsl::DslMatcher::match(db, *rule);
-    ASSERT_GE(results.size(), 1u);
+    auto matchedSymbols = symfind::dsl::DslMatcher::Match(analysisDatabase, *symbolRule);
+    ASSERT_GE(matchedSymbols.size(), 1u);
 
     // The match should be inside .text
-    spdlog::info("Found LdrpInitialize candidate at RVA 0x{:X}", results[0].rva);
+    SPDLOG_INFO("Found LdrpInitialize candidate at RVA 0x{:X}", matchedSymbols[0].rva);
 }
 
 TEST(CollectDataRefs, FindsLeaInRtlDecompressBuffer)
 {
-    const auto module = symfind::PeModule::from_file(R"(C:\Windows\System32\ntdll.dll)");
-    ASSERT_TRUE(module.has_value());
+    const auto ntdllModule = symfind::PeModule::FromFile(R"(C:\Windows\System32\ntdll.dll)");
+    ASSERT_TRUE(ntdllModule.has_value());
 
-    const auto rtl_decompress = module->export_rva("RtlDecompressBuffer");
-    ASSERT_TRUE(rtl_decompress.has_value());
+    const auto decompressionFunctionRva = ntdllModule->ExportRva("RtlDecompressBuffer");
+    ASSERT_TRUE(decompressionFunctionRva.has_value());
 
-    // We need the function size - easiest is to run from_exception_directory
-    std::vector<symfind::Function> functions;
-    symfind::FunctionFinder::from_exception_directory(*module, functions);
+    // We need the function size - easiest is to run FromExceptionDirectory
+    std::vector<symfind::Function> discoveredFunctions;
+    symfind::FunctionFinder::FromExceptionDirectory(*ntdllModule, discoveredFunctions);
 
-    auto it = std::find_if(functions.begin(), functions.end(),
-                           [&](const symfind::Function& f)
-                           {
-                               return f.rva == *rtl_decompress;
-                           });
-    ASSERT_NE(it, functions.end());
+    auto decompressionFunctionIterator =
+        std::find_if(discoveredFunctions.begin(), discoveredFunctions.end(),
+                     [&](const symfind::Function& candidateFunction)
+                     {
+                         return candidateFunction.rva == *decompressionFunctionRva;
+                     });
+    ASSERT_NE(decompressionFunctionIterator, discoveredFunctions.end());
 
     const symfind::Disassembler disassembler;
-    const auto refs = symfind::collect_data_refs(*module, disassembler, it->rva, it->size);
+    const auto dataReferences =
+        symfind::CollectDataRefs(*ntdllModule, disassembler, decompressionFunctionIterator->rva,
+                                 decompressionFunctionIterator->size);
 
     // RtlDecompressBuffer has at least one DataRef (lea rdi, RtlDecompressBufferProcs)
-    ASSERT_GE(refs.size(), 1u);
-    bool has_lea = std::any_of(refs.begin(), refs.end(),
-                               [](const symfind::Xref& x)
-                               {
-                                   return x.type == symfind::XrefType::DataRef;
-                               });
-    EXPECT_TRUE(has_lea);
+    ASSERT_GE(dataReferences.size(), 1u);
+    bool hasAddressReference =
+        std::any_of(dataReferences.begin(), dataReferences.end(),
+                    [](const symfind::Xref& dataReference)
+                    {
+                        return dataReference.type == symfind::XrefType::DataRef;
+                    });
+    EXPECT_TRUE(hasAddressReference);
+}
+
+TEST(FunctionFinder, SearchFunctionsByExceptionsParsingInNtdllFromMemory)
+{
+    const auto fileBytes = ReadFileFromDisk(LR"(C:\Windows\System32\ntdll.dll)");
+    ASSERT_FALSE(fileBytes.empty());
+
+    const auto* dosHeader = reinterpret_cast<const IMAGE_DOS_HEADER*>(fileBytes.data());
+    const auto* ntHeaders =
+        reinterpret_cast<const IMAGE_NT_HEADERS64*>(fileBytes.data() + dosHeader->e_lfanew);
+    const uint64_t preferredImageBase = ntHeaders->OptionalHeader.ImageBase;
+
+    auto ntdllModule = symfind::PeModule::FromMemory(fileBytes, preferredImageBase);
+    ASSERT_TRUE(ntdllModule.has_value());
+    std::vector<symfind::Function> discoveredFunctions;
+    symfind::FunctionFinder::FromExceptionDirectory(*ntdllModule, discoveredFunctions);
+    EXPECT_GT(discoveredFunctions.size(), 10);
+}
+
+TEST(FunctionFinder, SearchFunctionsByDisassemblingCodeSectionsFromMemory)
+{
+    const auto fileBytes = ReadFileFromDisk(LR"(C:\Windows\System32\ntdll.dll)");
+    ASSERT_FALSE(fileBytes.empty());
+
+    const auto* dosHeader = reinterpret_cast<const IMAGE_DOS_HEADER*>(fileBytes.data());
+    const auto* ntHeaders =
+        reinterpret_cast<const IMAGE_NT_HEADERS64*>(fileBytes.data() + dosHeader->e_lfanew);
+    const uint64_t preferredImageBase = ntHeaders->OptionalHeader.ImageBase;
+
+    auto ntdllModule = symfind::PeModule::FromMemory(fileBytes, preferredImageBase);
+    ASSERT_TRUE(ntdllModule.has_value());
+    std::vector<symfind::Function> discoveredFunctions;
+    const symfind::Disassembler disassembler;
+    symfind::FunctionFinder::FromCallTargets(*ntdllModule, disassembler, discoveredFunctions);
+    EXPECT_GT(discoveredFunctions.size(), 10);
+}
+
+TEST(AnalysisIntegration, FindLdrpInitializeInRealNtdllFromMemory)
+{
+    const auto fileBytes = ReadFileFromDisk(LR"(C:\Windows\System32\ntdll.dll)");
+    ASSERT_FALSE(fileBytes.empty());
+
+    const auto* dosHeader = reinterpret_cast<const IMAGE_DOS_HEADER*>(fileBytes.data());
+    const auto* ntHeaders =
+        reinterpret_cast<const IMAGE_NT_HEADERS64*>(fileBytes.data() + dosHeader->e_lfanew);
+    const uint64_t preferredImageBase = ntHeaders->OptionalHeader.ImageBase;
+
+    auto ntdllModule = symfind::PeModule::FromMemory(fileBytes, preferredImageBase);
+    ASSERT_TRUE(ntdllModule.has_value());
+    auto analysisDatabase = symfind::AnalysisDb::Analyze(*ntdllModule);
+    EXPECT_GT(analysisDatabase.Functions().size(), 100u);
+    const auto* initializationThunk = analysisDatabase.FunctionByName("LdrInitializeThunk");
+    ASSERT_NE(initializationThunk, nullptr);
+    EXPECT_GT(initializationThunk->callees.size(), 0u);
+    auto symbolRule =
+        symfind::dsl::DslParser::Parse(symfind::validation::NtdllRuleFor("LdrpInitialize"));
+    ASSERT_TRUE(symbolRule.has_value());
+    auto matchedSymbols = symfind::dsl::DslMatcher::Match(analysisDatabase, *symbolRule);
+    ASSERT_GE(matchedSymbols.size(), 1u);
+    SPDLOG_INFO("Found LdrpInitialize candidate at RVA 0x{:X} (from_memory)",
+                matchedSymbols[0].rva);
+}
+
+TEST(CollectDataRefs, FindsLeaInRtlDecompressBufferFromMemory)
+{
+    const auto fileBytes = ReadFileFromDisk(LR"(C:\Windows\System32\ntdll.dll)");
+    ASSERT_FALSE(fileBytes.empty());
+
+    const auto* dosHeader = reinterpret_cast<const IMAGE_DOS_HEADER*>(fileBytes.data());
+    const auto* ntHeaders =
+        reinterpret_cast<const IMAGE_NT_HEADERS64*>(fileBytes.data() + dosHeader->e_lfanew);
+    const uint64_t preferredImageBase = ntHeaders->OptionalHeader.ImageBase;
+
+    auto ntdllModule = symfind::PeModule::FromMemory(fileBytes, preferredImageBase);
+    ASSERT_TRUE(ntdllModule.has_value());
+    const auto decompressionFunctionRva = ntdllModule->ExportRva("RtlDecompressBuffer");
+    ASSERT_TRUE(decompressionFunctionRva.has_value());
+    std::vector<symfind::Function> discoveredFunctions;
+    symfind::FunctionFinder::FromExceptionDirectory(*ntdllModule, discoveredFunctions);
+    auto decompressionFunctionIterator =
+        std::find_if(discoveredFunctions.begin(), discoveredFunctions.end(),
+                     [&](const symfind::Function& candidateFunction)
+                     {
+                         return candidateFunction.rva == *decompressionFunctionRva;
+                     });
+    ASSERT_NE(decompressionFunctionIterator, discoveredFunctions.end());
+    const symfind::Disassembler disassembler;
+    const auto dataReferences =
+        symfind::CollectDataRefs(*ntdllModule, disassembler, decompressionFunctionIterator->rva,
+                                 decompressionFunctionIterator->size);
+    ASSERT_GE(dataReferences.size(), 1u);
+    bool hasAddressReference =
+        std::any_of(dataReferences.begin(), dataReferences.end(),
+                    [](const symfind::Xref& dataReference)
+                    {
+                        return dataReference.type == symfind::XrefType::DataRef;
+                    });
+    EXPECT_TRUE(hasAddressReference);
 }

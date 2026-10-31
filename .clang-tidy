@@ -1,0 +1,24 @@
+Checks: '-*,readability-identifier-naming,readability-braces-around-statements'
+HeaderFilterRegex: '[/\\](include[/\\]symfind|src|tests|examples|pdb_stuff[/\\](src|include[/\\]pdb_stuff)|tools[/\\]compare_symbols\.cpp)([/\\]|$)'
+ExcludeHeaderFilterRegex: '[/\\](build[^/\\]*|cmake-build[^/\\]*|_deps|tools[/\\]lemon)([/\\]|$)'
+CheckOptions:
+  readability-identifier-naming.NamespaceCase: camelBack
+  readability-identifier-naming.VariableCase: camelBack
+  readability-identifier-naming.ParameterCase: camelBack
+  readability-identifier-naming.FunctionCase: CamelCase
+  readability-identifier-naming.MethodCase: CamelCase
+  readability-identifier-naming.MemberCase: camelBack
+  readability-identifier-naming.PrivateMemberCase: camelBack
+  readability-identifier-naming.PrivateMemberPrefix: 'm_'
+  readability-identifier-naming.ClassMemberCase: camelBack
+  readability-identifier-naming.ConstantCase: camelBack
+  readability-identifier-naming.MacroDefinitionCase: UPPER_CASE
+  readability-identifier-naming.FunctionIgnoredRegexp: '^main$'
+  readability-identifier-naming.ClassCase: CamelCase
+  readability-identifier-naming.StructCase: CamelCase
+  readability-identifier-naming.EnumCase: CamelCase
+  readability-identifier-naming.EnumConstantCase: CamelCase
+  readability-identifier-naming.ScopedEnumConstantCase: CamelCase
+  readability-identifier-naming.TypeAliasCase: CamelCase
+  readability-identifier-naming.TypedefCase: CamelCase
+  readability-braces-around-statements.ShortStatementLines: '0'

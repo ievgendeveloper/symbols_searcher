@@ -12,7 +12,14 @@ namespace symfind::dsl
 {
     // ─── Comparison ──────────────────────────────────────
 
-    enum class CmpOp { Eq, Gt, Lt, Gte, Lte };
+    enum class CmpOp
+    {
+        Eq,
+        Gt,
+        Lt,
+        Gte,
+        Lte
+    };
 
     // ─── Target kind ─────────────────────────────────────
 
@@ -26,19 +33,19 @@ namespace symfind::dsl
 
     enum class PredKind
     {
-        Calls, ///< calls "X"
-        CalledBy, ///< called_by "X"
-        CalledByBlock, ///< called_by ( ... predicates ... )
-        ReferencedBy, ///< referenced_by "X"
-        Exported, ///< exported
-        HasLoop, ///< has_loop
-        Not, ///< not <predicate>
-        CallsCount, ///< calls_count op N
-        Xrefs, ///< xrefs count op N
-        StackFrameSize, ///< stack_frame_size op N
-        ReadsReg, ///< reads_reg "name"
-        ArgType, ///< arg[N] type "T"
-        Take, ///< take first | take N
+        Calls,          ///< calls "X"
+        CalledBy,       ///< called_by "X"
+        CalledByBlock,  ///< called_by ( ... predicates ... )
+        ReferencedBy,   ///< referenced_by "X"
+        Exported,       ///< exported
+        HasLoop,        ///< hasLoop
+        Not,            ///< not <predicate>
+        CallsCount,     ///< calls_count op N
+        Xrefs,          ///< xrefs count op N
+        StackFrameSize, ///< stackFrameSize op N
+        ReadsReg,       ///< reads_reg "name"
+        ArgType,        ///< arg[N] type "T"
+        Take,           ///< take first | take N
     };
 
     struct Predicate;
@@ -46,34 +53,34 @@ namespace symfind::dsl
 
     struct Predicate
     {
-        PredKind kind;
+            PredKind kind;
 
-        std::string str_value;
-        int64_t int_value = 0;
-        CmpOp cmp_op = CmpOp::Eq;
+            std::string strValue;
+            int64_t intValue = 0;
+            CmpOp cmpOp = CmpOp::Eq;
 
-        PredicatePtr child; ///< for `not`
-        std::vector<PredicatePtr> children; ///< for `called_by ( ... )`
+            PredicatePtr child;                 ///< for `not`
+            std::vector<PredicatePtr> children; ///< for `called_by ( ... )`
     };
 
     /// A complete DSL rule.
     struct Rule
     {
-        TargetKind target = TargetKind::Function;
-        std::string module_name;
-        std::vector<PredicatePtr> predicates;
+            TargetKind target = TargetKind::Function;
+            std::string moduleName;
+            std::vector<PredicatePtr> predicates;
     };
 
     // ─── Parser context (used by Lemon-generated parser) ─
 
     /// State passed to the Lemon parser via %extra_argument.
     /// The grammar action blocks fill in `result`; on syntax error,
-    /// `had_error` is set.
+    /// `hadError` is set.
     struct ParserContext
     {
-        Rule result;
-        bool had_error = false;
-        int error_line = 0;
+            Rule result;
+            bool hadError = false;
+            int errorLine = 0;
     };
 
     // ─── Public parser API ──────────────────────────────
@@ -83,8 +90,7 @@ namespace symfind::dsl
     class DslParser
     {
         public:
-            [[nodiscard]]
-            static std::optional<Rule> parse(std::string_view source);
+            [[nodiscard]] static std::optional<Rule> Parse(std::string_view ruleSource);
     };
 
 } // namespace symfind::dsl

@@ -1,243 +1,327 @@
 #include "symfind/dsl_matcher.h"
 
-#include <spdlog/spdlog.h>
 #include <algorithm>
-#include <format>
+#include <spdlog/fmt/fmt.h>
+#include <spdlog/spdlog.h>
 
 namespace symfind::dsl
 {
-
-    bool DslMatcher::compare(int64_t lhs, CmpOp op, int64_t rhs)
+    namespace
     {
-        switch (op)
+        std::string_view ModuleBasename(std::string_view moduleName)
+        {
+            const auto separatorPosition = moduleName.find_last_of("/\\");
+            return separatorPosition == std::string_view::npos
+                       ? moduleName
+                       : moduleName.substr(separatorPosition + 1);
+        }
+
+        unsigned char AsciiLower(unsigned char character)
+        {
+            return character >= 'A' && character <= 'Z'
+                       ? static_cast<unsigned char>(character + ('a' - 'A'))
+                       : character;
+        }
+
+        bool AsciiEqual(std::string_view leftText, std::string_view rightText)
+        {
+            return leftText.size() == rightText.size() &&
+                   std::equal(leftText.begin(), leftText.end(), rightText.begin(),
+                              [](unsigned char leftCharacter, unsigned char rightCharacter)
+                              {
+                                  return AsciiLower(leftCharacter) == AsciiLower(rightCharacter);
+                              });
+        }
+
+        bool MatchesModule(std::string_view actualModuleName, std::string_view requestedModuleName)
+        {
+            actualModuleName = ModuleBasename(actualModuleName);
+            requestedModuleName = ModuleBasename(requestedModuleName);
+            if (actualModuleName.empty() || requestedModuleName.empty())
+            {
+                return false;
+            }
+            if (AsciiEqual(actualModuleName, requestedModuleName))
+            {
+                return true;
+            }
+
+            // Existing rules use "ntdll" for "ntdll.dll". Only a bare name
+            // may omit .dll; explicit .exe/.sys and other suffixes stay distinct.
+            const auto matchesDllAlias =
+                [](std::string_view bareModuleName, std::string_view moduleFilename)
+            {
+                constexpr std::string_view dllSuffix = ".dll";
+                return bareModuleName.find('.') == std::string_view::npos &&
+                       moduleFilename.size() > dllSuffix.size() &&
+                       AsciiEqual(moduleFilename.substr(moduleFilename.size() - dllSuffix.size()),
+                                  dllSuffix) &&
+                       AsciiEqual(bareModuleName, moduleFilename.substr(0, moduleFilename.size() -
+                                                                               dllSuffix.size()));
+            };
+            return matchesDllAlias(actualModuleName, requestedModuleName) ||
+                   matchesDllAlias(requestedModuleName, actualModuleName);
+        }
+    } // namespace
+
+    bool DslMatcher::Compare(int64_t actualValue, CmpOp comparisonOperator, int64_t expectedValue)
+    {
+        switch (comparisonOperator)
         {
         case CmpOp::Eq:
-            return lhs == rhs;
+            return actualValue == expectedValue;
         case CmpOp::Gt:
-            return lhs > rhs;
+            return actualValue > expectedValue;
         case CmpOp::Lt:
-            return lhs < rhs;
+            return actualValue < expectedValue;
         case CmpOp::Gte:
-            return lhs >= rhs;
+            return actualValue >= expectedValue;
         case CmpOp::Lte:
-            return lhs <= rhs;
+            return actualValue <= expectedValue;
         }
         return false;
     }
 
-    std::vector<MatchResult> DslMatcher::match(const AnalysisDb& db,
-                                               const Rule& rule)
+    std::vector<MatchResult> DslMatcher::Match(const AnalysisDb& analysisDatabase,
+                                               const Rule& parsedRule)
     {
-        std::vector<MatchResult> results;
+        std::vector<MatchResult> matchedSymbols;
 
-        // Verify module name
-        // TODO: case-insensitive comparison
-        spdlog::info("Matching rule against module '{}'", db.module_name());
-
-        if (rule.target == TargetKind::Function)
+        SPDLOG_INFO("Matching rule against module '{}'", analysisDatabase.ModuleName());
+        if (!MatchesModule(analysisDatabase.ModuleName(), parsedRule.moduleName))
         {
-            for (const auto& func : db.functions())
+            SPDLOG_DEBUG("Rule module '{}' does not match '{}'", parsedRule.moduleName,
+                         analysisDatabase.ModuleName());
+            return matchedSymbols;
+        }
+
+        if (parsedRule.target == TargetKind::Function)
+        {
+            for (const auto& candidateFunction : analysisDatabase.Functions())
             {
-                if (match_function(db, func, rule.predicates))
+                if (MatchFunction(analysisDatabase, candidateFunction, parsedRule.predicates))
                 {
-                    results.push_back(MatchResult{
-                        .rva = func.rva,
-                        .name = func.name,
-                        .kind = TargetKind::Function,
-                    });
+                    matchedSymbols.push_back(MatchResult{
+                        candidateFunction.rva, candidateFunction.name, TargetKind::Function});
                 }
             }
         }
-        else if (rule.target == TargetKind::Global)
+        else if (parsedRule.target == TargetKind::Global)
         {
-            spdlog::info("Iterating {} globals", db.globals().size());
+            SPDLOG_INFO("Iterating {} globals", analysisDatabase.Globals().size());
 
-            for (const auto& global : db.globals())
+            for (const auto& candidateGlobal : analysisDatabase.Globals())
             {
-                if (match_global(db, global, rule.predicates))
+                if (MatchGlobal(analysisDatabase, candidateGlobal, parsedRule.predicates))
                 {
-                    results.push_back(MatchResult{
-                        .rva = global.rva,
-                        .name = std::format("global_{:X}", global.rva),
-                        .kind = TargetKind::Global,
-                    });
+                    matchedSymbols.push_back(MatchResult{
+                        candidateGlobal.rva, fmt::format("global_{:X}", candidateGlobal.rva),
+                        TargetKind::Global});
                 }
             }
         }
 
         // Apply `take` filtering
-        apply_take(results, rule.predicates);
+        ApplyTake(matchedSymbols, parsedRule.predicates);
 
-        spdlog::info("Found {} matches", results.size());
-        return results;
+        SPDLOG_INFO("Found {} matches", matchedSymbols.size());
+        return matchedSymbols;
     }
 
-    bool DslMatcher::match_function(const AnalysisDb& db,
-                                    const AnalyzedFunction& func,
-                                    const std::vector<PredicatePtr>& predicates)
+    bool DslMatcher::MatchFunction(const AnalysisDb& analysisDatabase,
+                                   const AnalyzedFunction& candidateFunction,
+                                   const std::vector<PredicatePtr>& predicates)
     {
-        for (const auto& pred : predicates)
+        for (const auto& predicate : predicates)
         {
-            if (!pred)
+            if (!predicate)
+            {
                 continue;
+            }
             // Skip `take` — it's handled after matching
-            if (pred->kind == PredKind::Take)
+            if (predicate->kind == PredKind::Take)
+            {
                 continue;
-            if (!eval_function_pred(db, func, *pred))
+            }
+
+            if (!EvalFunctionPred(analysisDatabase, candidateFunction, *predicate))
+            {
                 return false;
+            }
         }
         return true;
     }
 
-    bool DslMatcher::match_global(const AnalysisDb& db,
-                                  const Global& global,
-                                  const std::vector<PredicatePtr>& predicates)
+    bool DslMatcher::MatchGlobal(const AnalysisDb& analysisDatabase, const Global& candidateGlobal,
+                                 const std::vector<PredicatePtr>& predicates)
     {
-        spdlog::info("match_global called for global at 0x{:X}, refs={}",
-                     global.rva, global.refs.size());
+        SPDLOG_INFO("match_global called for global at 0x{:X}, refs={}", candidateGlobal.rva,
+                    candidateGlobal.refs.size());
 
-        for (const auto& pred : predicates)
+        for (const auto& predicate : predicates)
         {
-            if (!pred)
+            if (!predicate)
+            {
                 continue;
-            if (pred->kind == PredKind::Take)
+            }
+
+            if (predicate->kind == PredKind::Take)
+            {
                 continue;
-            if (!eval_global_pred(db, global, *pred))
+            }
+
+            if (!EvalGlobalPred(analysisDatabase, candidateGlobal, *predicate))
+            {
                 return false;
+            }
         }
         return true;
     }
 
-    bool DslMatcher::eval_function_pred(const AnalysisDb& db,
-                                        const AnalyzedFunction& func,
-                                        const Predicate& pred)
+    bool DslMatcher::EvalFunctionPred(const AnalysisDb& analysisDatabase,
+                                      const AnalyzedFunction& candidateFunction,
+                                      const Predicate& predicate)
     {
-        switch (pred.kind)
+        switch (predicate.kind)
         {
-
         case PredKind::Calls:
         {
             // Check if this function calls the named function
-            const auto* target = db.function_by_name(pred.str_value);
-            if (!target)
+            const auto* calleeFunction = analysisDatabase.FunctionByName(predicate.strValue);
+            if (!calleeFunction)
+            {
                 return false;
-            return std::find(func.callees.begin(), func.callees.end(),
-                             target->rva) != func.callees.end();
+            }
+
+            return std::find(candidateFunction.callees.begin(), candidateFunction.callees.end(),
+                             calleeFunction->rva) != candidateFunction.callees.end();
         }
 
         case PredKind::CalledBy:
         {
             // Check if this function is called by the named function
-            const auto* caller = db.function_by_name(pred.str_value);
-            if (!caller)
+            const auto* callerFunction = analysisDatabase.FunctionByName(predicate.strValue);
+            if (!callerFunction)
+            {
                 return false;
-            return std::find(func.callers.begin(), func.callers.end(),
-                             caller->rva) != func.callers.end();
+            }
+            return std::find(candidateFunction.callers.begin(), candidateFunction.callers.end(),
+                             callerFunction->rva) != candidateFunction.callers.end();
         }
 
         case PredKind::CalledByBlock:
         {
             // Check if ANY caller of this function matches all inner predicates
-            for (uint64_t caller_rva : func.callers)
+            for (uint64_t callerRva : candidateFunction.callers)
             {
-                const auto* caller = db.function_at(caller_rva);
-                if (!caller)
-                    continue;
-                bool all_match = true;
-                for (const auto& inner : pred.children)
+                const auto* callerFunction = analysisDatabase.FunctionAt(callerRva);
+                if (!callerFunction)
                 {
-                    if (!eval_function_pred(db, *caller, *inner))
+                    continue;
+                }
+                bool callerMatchesAllPredicates = true;
+                for (const auto& callerPredicate : predicate.children)
+                {
+                    if (!EvalFunctionPred(analysisDatabase, *callerFunction, *callerPredicate))
                     {
-                        all_match = false;
+                        callerMatchesAllPredicates = false;
                         break;
                     }
                 }
-                if (all_match)
+                if (callerMatchesAllPredicates)
+                {
                     return true;
+                }
             }
             return false;
         }
 
         case PredKind::Exported:
-            return func.exported;
+            return candidateFunction.exported;
 
         case PredKind::HasLoop:
-            return func.has_loop;
+            return candidateFunction.hasLoop;
 
         case PredKind::Not:
-            return pred.child ? !eval_function_pred(db, func, *pred.child) : true;
+            return predicate.child
+                       ? !EvalFunctionPred(analysisDatabase, candidateFunction, *predicate.child)
+                       : true;
 
         case PredKind::CallsCount:
-            return compare(func.call_count, pred.cmp_op, pred.int_value);
+            return Compare(candidateFunction.callCount, predicate.cmpOp, predicate.intValue);
 
         case PredKind::Xrefs:
         {
-            auto xrefs = db.xrefs_to(func.rva);
-            return compare(static_cast<int64_t>(xrefs.size()), pred.cmp_op, pred.int_value);
+            auto incomingReferences = analysisDatabase.XrefsTo(candidateFunction.rva);
+            return Compare(static_cast<int64_t>(incomingReferences.size()), predicate.cmpOp,
+                           predicate.intValue);
         }
 
         case PredKind::StackFrameSize:
-            return compare(func.stack_frame_size, pred.cmp_op, pred.int_value);
+            return Compare(candidateFunction.stackFrameSize, predicate.cmpOp, predicate.intValue);
 
         default:
-            spdlog::warn("Unhandled predicate kind {} for function matching",
-                         static_cast<int>(pred.kind));
+            SPDLOG_WARN("Unhandled predicate kind {} for function matching",
+                        static_cast<int>(predicate.kind));
             return false;
         }
     }
 
-    bool DslMatcher::eval_global_pred(const AnalysisDb& db,
-                                      const Global& global,
-                                      const Predicate& pred)
+    bool DslMatcher::EvalGlobalPred(const AnalysisDb& analysisDatabase,
+                                    const Global& candidateGlobal, const Predicate& predicate)
     {
-        switch (pred.kind)
+        switch (predicate.kind)
         {
-
         case PredKind::ReferencedBy:
         {
-            spdlog::info("ReferencedBy: looking for func '{}'", pred.str_value);
-            const auto* func = db.function_by_name(pred.str_value);
-            if (!func)
+            SPDLOG_INFO("ReferencedBy: looking for func '{}'", predicate.strValue);
+            const auto* referencingFunction = analysisDatabase.FunctionByName(predicate.strValue);
+            if (!referencingFunction)
             {
-                spdlog::info("ReferencedBy: function not found in DB");
+                SPDLOG_INFO("ReferencedBy: function not found in DB");
                 return false;
             }
-            spdlog::info("ReferencedBy: found func at rva 0x{:X}, global has {} refs",
-                         func->rva, global.refs.size());
-            for (const auto& ref : global.refs)
+            SPDLOG_INFO("ReferencedBy: found func at rva 0x{:X}, global has {} refs",
+                        referencingFunction->rva, candidateGlobal.refs.size());
+            for (const auto& dataReference : candidateGlobal.refs)
             {
-                spdlog::info("  ref: from_func=0x{:X}, target=0x{:X}", ref.from_func, ref.to_rva);
-                if (ref.from_func == func->rva)
+                SPDLOG_INFO("  ref: from_func=0x{:X}, target=0x{:X}", dataReference.fromFunc,
+                            dataReference.toRva);
+                if (dataReference.fromFunc == referencingFunction->rva)
+                {
                     return true;
+                }
             }
             return false;
         }
 
         case PredKind::Xrefs:
-            return compare(static_cast<int64_t>(global.refs.size()),
-                           pred.cmp_op, pred.int_value);
+            return Compare(static_cast<int64_t>(candidateGlobal.refs.size()), predicate.cmpOp,
+                           predicate.intValue);
 
         case PredKind::Not:
-            return pred.child ? !eval_global_pred(db, global, *pred.child) : true;
+            return predicate.child
+                       ? !EvalGlobalPred(analysisDatabase, candidateGlobal, *predicate.child)
+                       : true;
 
         default:
-            spdlog::warn("Unhandled predicate kind {} for global matching",
-                         static_cast<int>(pred.kind));
+            SPDLOG_WARN("Unhandled predicate kind {} for global matching",
+                        static_cast<int>(predicate.kind));
             return false;
         }
     }
 
-    void DslMatcher::apply_take(std::vector<MatchResult>& results,
-                                const std::vector<PredicatePtr>& predicates)
+    void DslMatcher::ApplyTake(std::vector<MatchResult>& matchedSymbols,
+                               const std::vector<PredicatePtr>& predicates)
     {
-        for (const auto& pred : predicates)
+        for (const auto& predicate : predicates)
         {
-            if (pred && pred->kind == PredKind::Take)
+            if (predicate && predicate->kind == PredKind::Take)
             {
-                auto n = static_cast<size_t>(pred->int_value);
-                if (results.size() > n)
+                auto resultLimit = static_cast<size_t>(predicate->intValue);
+                if (matchedSymbols.size() > resultLimit)
                 {
-                    results.resize(n);
+                    matchedSymbols.resize(resultLimit);
                 }
                 break;
             }

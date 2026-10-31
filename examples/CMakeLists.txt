@@ -5,5 +5,5 @@ add_executable(symfind_example
 target_link_libraries(symfind_example
     PRIVATE
         symfind
-        spdlog::spdlog_header_only
+        spdlog::spdlog
 )

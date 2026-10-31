@@ -1,6 +1,6 @@
 {
     "version": 6,
-    "cmakeMinimumRequired": { "major": 3, "minor": 20, "patch": 0 },
+    "cmakeMinimumRequired": { "major": 3, "minor": 25, "patch": 0 },
     "configurePresets": [
         {
             "name": "debug",
@@ -18,40 +18,67 @@
             "binaryDir": "${sourceDir}/build/release",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Release",
-                "SYMFIND_BUILD_TESTS": "OFF",
+                "SYMFIND_BUILD_TESTS": "ON",
                 "SYMFIND_BUILD_EXAMPLES": "ON"
             }
         },
         {
             "name": "release-min",
-            "displayName": "Release (minimal, library only)",
+            "displayName": "Release (minimal size optimization)",
             "binaryDir": "${sourceDir}/build/release-min",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "MinSizeRel",
                 "SYMFIND_BUILD_TESTS": "OFF",
-                "SYMFIND_BUILD_EXAMPLES": "OFF"
+                "SYMFIND_BUILD_EXAMPLES": "OFF",
+                "SYMFIND_BUILD_PDB_TOOLS": "OFF"
             }
         }
     ],
     "buildPresets": [
         {
             "name": "debug",
-            "configurePreset": "debug"
+            "configurePreset": "debug",
+            "configuration": "Debug"
         },
         {
             "name": "release",
-            "configurePreset": "release"
+            "configurePreset": "release",
+            "configuration": "Release"
         },
         {
             "name": "release-min",
-            "configurePreset": "release-min"
+            "configurePreset": "release-min",
+            "configuration": "MinSizeRel"
         }
     ],
     "testPresets": [
         {
             "name": "debug",
             "configurePreset": "debug",
+            "configuration": "Debug",
+            "output": { "outputOnFailure": true },
+            "filter": { "exclude": { "label": "network" } }
+        },
+        {
+            "name": "release",
+            "configurePreset": "release",
+            "configuration": "Release",
+            "output": { "outputOnFailure": true },
+            "filter": { "exclude": { "label": "network" } }
+        },
+        {
+            "name": "release-min",
+            "configurePreset": "release-min",
+            "configuration": "MinSizeRel",
             "output": { "outputOnFailure": true }
+        },
+        {
+            "name": "network",
+            "configurePreset": "debug",
+            "configuration": "Debug",
+            "output": { "outputOnFailure": true },
+            "filter": { "include": { "label": "network" } },
+            "execution": { "noTestsAction": "error" }
         }
     ]
 }
