@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.25)
 
 project(symfind
-    VERSION 0.1.0
+    VERSION 1.0.0
     DESCRIPTION "Symbol finder engine — locate unexported symbols via heuristic analysis"
     LANGUAGES CXX C
 )
