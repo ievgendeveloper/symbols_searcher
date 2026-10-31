@@ -16,65 +16,67 @@
 
 namespace
 {
-    template <class T>
-    void put(std::vector<uint8_t>& bytes, size_t offset, const T& value)
+    template <class ValueType>
+    void Put(std::vector<uint8_t>& peImageBytes, size_t fieldOffset, const ValueType& fieldValue)
     {
-        std::memcpy(bytes.data() + offset, &value, sizeof(value));
+        std::memcpy(peImageBytes.data() + fieldOffset, &fieldValue, sizeof(fieldValue));
     }
 
     // A tiny on-disk PE with a debug directory in one file-backed section.
-    std::vector<uint8_t> sample_pe()
+    std::vector<uint8_t> SamplePe()
     {
-        std::vector<uint8_t> bytes(0x400);
-        IMAGE_DOS_HEADER dos{};
-        dos.e_magic = IMAGE_DOS_SIGNATURE;
-        dos.e_lfanew = 0x40;
-        put(bytes, 0, dos);
-        put(bytes, 0x40, DWORD{IMAGE_NT_SIGNATURE});
-        IMAGE_FILE_HEADER file{};
-        file.Machine = IMAGE_FILE_MACHINE_AMD64;
-        file.NumberOfSections = 1;
-        file.SizeOfOptionalHeader = sizeof(IMAGE_OPTIONAL_HEADER64);
-        put(bytes, 0x44, file);
-        IMAGE_OPTIONAL_HEADER64 optional{};
-        optional.Magic = IMAGE_NT_OPTIONAL_HDR64_MAGIC;
-        optional.SizeOfImage = 0x2000;
-        optional.SizeOfHeaders = 0x200;
-        optional.NumberOfRvaAndSizes = IMAGE_NUMBEROF_DIRECTORY_ENTRIES;
-        optional.DataDirectory[IMAGE_DIRECTORY_ENTRY_DEBUG] = {0x1000, sizeof(IMAGE_DEBUG_DIRECTORY)};
-        put(bytes, 0x58, optional);
-        IMAGE_SECTION_HEADER section{};
-        section.VirtualAddress = 0x1000;
-        section.SizeOfRawData = 0x200;
-        section.PointerToRawData = 0x200;
-        put(bytes, 0x58 + sizeof(optional), section);
-        IMAGE_DEBUG_DIRECTORY debug{};
-        debug.Type = IMAGE_DEBUG_TYPE_CODEVIEW;
-        debug.SizeOfData = 34;
-        debug.AddressOfRawData = 0x1040;
-        debug.PointerToRawData = 0x240;
-        put(bytes, 0x200, debug);
-        std::memcpy(bytes.data() + 0x240, reinterpret_cast<void const*>("RSDS"), 4);
-        const GUID guid{0x12345678, 0xABCD, 0xEF12, {0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF}};
-        put(bytes, 0x244, guid);
-        put(bytes, 0x254, uint32_t{2});
-        std::memcpy(bytes.data() + 0x258, reinterpret_cast<void const*>("ntdll.pdb"), 10);
-        return bytes;
+        std::vector<uint8_t> peImageBytes(0x400);
+        IMAGE_DOS_HEADER dosHeader{};
+        dosHeader.e_magic = IMAGE_DOS_SIGNATURE;
+        dosHeader.e_lfanew = 0x40;
+        Put(peImageBytes, 0, dosHeader);
+        Put(peImageBytes, 0x40, DWORD{IMAGE_NT_SIGNATURE});
+        IMAGE_FILE_HEADER coffHeader{};
+        coffHeader.Machine = IMAGE_FILE_MACHINE_AMD64;
+        coffHeader.NumberOfSections = 1;
+        coffHeader.SizeOfOptionalHeader = sizeof(IMAGE_OPTIONAL_HEADER64);
+        Put(peImageBytes, 0x44, coffHeader);
+        IMAGE_OPTIONAL_HEADER64 optionalHeader{};
+        optionalHeader.Magic = IMAGE_NT_OPTIONAL_HDR64_MAGIC;
+        optionalHeader.SizeOfImage = 0x2000;
+        optionalHeader.SizeOfHeaders = 0x200;
+        optionalHeader.NumberOfRvaAndSizes = IMAGE_NUMBEROF_DIRECTORY_ENTRIES;
+        optionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_DEBUG] = {0x1000,
+                                                                     sizeof(IMAGE_DEBUG_DIRECTORY)};
+        Put(peImageBytes, 0x58, optionalHeader);
+        IMAGE_SECTION_HEADER sectionHeader{};
+        sectionHeader.VirtualAddress = 0x1000;
+        sectionHeader.SizeOfRawData = 0x200;
+        sectionHeader.PointerToRawData = 0x200;
+        Put(peImageBytes, 0x58 + sizeof(optionalHeader), sectionHeader);
+        IMAGE_DEBUG_DIRECTORY debugDirectory{};
+        debugDirectory.Type = IMAGE_DEBUG_TYPE_CODEVIEW;
+        debugDirectory.SizeOfData = 34;
+        debugDirectory.AddressOfRawData = 0x1040;
+        debugDirectory.PointerToRawData = 0x240;
+        Put(peImageBytes, 0x200, debugDirectory);
+        std::memcpy(peImageBytes.data() + 0x240, reinterpret_cast<void const*>("RSDS"), 4);
+        const GUID pdbGuid{
+            0x12345678, 0xABCD, 0xEF12, {0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF}};
+        Put(peImageBytes, 0x244, pdbGuid);
+        Put(peImageBytes, 0x254, uint32_t{2});
+        std::memcpy(peImageBytes.data() + 0x258, reinterpret_cast<void const*>("ntdll.pdb"), 10);
+        return peImageBytes;
     }
 
-    std::string environment_value(const char* name)
+    std::string EnvironmentValue(const char* variableName)
     {
         // _dupenv_s avoids borrowed environment pointers on the MSVC CRT.
-        char* value = nullptr;
-        size_t size = 0;
-        if (::_dupenv_s(&value, &size, name) != 0)
+        char* rawEnvironmentValue = nullptr;
+        size_t bufferSize = 0;
+        if (::_dupenv_s(&rawEnvironmentValue, &bufferSize, variableName) != 0)
         {
             throw std::runtime_error("Could not read environment variable");
         }
 
-        const std::string result = value ? value : "";
-        std::free(value);
-        return result;
+        const std::string environmentText = rawEnvironmentValue ? rawEnvironmentValue : "";
+        std::free(rawEnvironmentValue);
+        return environmentText;
     }
 
     class TemporaryPair
@@ -84,173 +86,198 @@ namespace
             {
                 for (unsigned attempt = 0; attempt < 100; ++attempt)
                 {
-                    directory = std::filesystem::temp_directory_path() /
-                                ("symfind-pdb-test-" + std::to_string(GetCurrentProcessId()) + "-" +
-                                 std::to_string(GetTickCount64()) + "-" + std::to_string(attempt));
-                    if (std::filesystem::create_directory(directory))
+                    temporaryDirectory =
+                        std::filesystem::temp_directory_path() /
+                        ("symfind-pdb-test-" + std::to_string(GetCurrentProcessId()) + "-" +
+                         std::to_string(GetTickCount64()) + "-" + std::to_string(attempt));
+                    if (std::filesystem::create_directory(temporaryDirectory))
+                    {
                         return;
+                    }
                 }
                 throw std::runtime_error("Could not create temporary PDB test directory");
             }
 
             ~TemporaryPair()
             {
-                std::error_code ignored;
-                std::filesystem::remove_all(directory, ignored);
+                std::error_code cleanupError;
+                std::filesystem::remove_all(temporaryDirectory, cleanupError);
             }
 
-            std::filesystem::path directory;
+            std::filesystem::path temporaryDirectory;
     };
 } // namespace
 
 TEST(PdbIdentity, ReadsRsdsGuidAgeAndFileBackedDebugDirectory)
 {
-    const auto identity = symfind::validation::read_pe_identity(sample_pe());
-    EXPECT_EQ(identity.key(), "12345678ABCDEF120123456789ABCDEF2");
-    EXPECT_EQ(identity.pdb_name, "ntdll.pdb");
-    EXPECT_EQ(identity.image_size, 0x2000u);
-    EXPECT_EQ(identity.machine, IMAGE_FILE_MACHINE_AMD64);
+    const auto peIdentity = symfind::validation::ReadPeIdentity(SamplePe());
+    EXPECT_EQ(peIdentity.Key(), "12345678ABCDEF120123456789ABCDEF2");
+    EXPECT_EQ(peIdentity.pdbName, "ntdll.pdb");
+    EXPECT_EQ(peIdentity.imageSize, 0x2000u);
+    EXPECT_EQ(peIdentity.machine, IMAGE_FILE_MACHINE_AMD64);
 }
 
 TEST(PdbIdentity, RejectsTruncatedCodeViewRecord)
 {
-    auto bytes = sample_pe();
-    bytes.resize(0x250);
-    EXPECT_THROW(static_cast<void>(symfind::validation::read_pe_identity(bytes)), std::runtime_error);
+    auto peImageBytes = SamplePe();
+    peImageBytes.resize(0x250);
+    EXPECT_THROW(static_cast<void>(symfind::validation::ReadPeIdentity(peImageBytes)),
+                 std::runtime_error);
 }
 
 TEST(PdbIdentity, RejectsDebugDirectoryOutsideRawSection)
 {
-    auto bytes = sample_pe();
+    auto peImageBytes = SamplePe();
     // The virtual RVA cannot be interpreted as a file offset.
-    put(bytes, 0x58 + offsetof(IMAGE_OPTIONAL_HEADER64, DataDirectory) + IMAGE_DIRECTORY_ENTRY_DEBUG * sizeof(IMAGE_DATA_DIRECTORY),
+    Put(peImageBytes,
+        0x58 + offsetof(IMAGE_OPTIONAL_HEADER64, DataDirectory) +
+            IMAGE_DIRECTORY_ENTRY_DEBUG * sizeof(IMAGE_DATA_DIRECTORY),
         IMAGE_DATA_DIRECTORY{0x1200, sizeof(IMAGE_DEBUG_DIRECTORY)});
-    EXPECT_THROW(static_cast<void>(symfind::validation::read_pe_identity(bytes)), std::runtime_error);
+    EXPECT_THROW(static_cast<void>(symfind::validation::ReadPeIdentity(peImageBytes)),
+                 std::runtime_error);
 }
 
 TEST(PdbIdentity, RejectsUnterminatedPdbName)
 {
-    auto bytes = sample_pe();
-    bytes[0x261] = 'x';
-    EXPECT_THROW(static_cast<void>(symfind::validation::read_pe_identity(bytes)), std::runtime_error);
+    auto peImageBytes = SamplePe();
+    peImageBytes[0x261] = 'x';
+    EXPECT_THROW(static_cast<void>(symfind::validation::ReadPeIdentity(peImageBytes)),
+                 std::runtime_error);
 }
 
 TEST(PdbSymbols, RejectsInvalidExplicitPdb)
 {
-    TemporaryPair temporary;
-    const auto dll = temporary.directory / "ntdll.dll";
-    const auto pdb = temporary.directory / "ntdll.pdb";
-    const auto bytes = sample_pe();
+    TemporaryPair temporaryPair;
+    const auto dllPath = temporaryPair.temporaryDirectory / "ntdll.dll";
+    const auto pdbPath = temporaryPair.temporaryDirectory / "ntdll.pdb";
+    const auto peImageBytes = SamplePe();
     {
-        std::ofstream image(dll, std::ios::binary);
-        image.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
-        ASSERT_TRUE(image.good());
-        std::ofstream symbols(pdb, std::ios::binary);
-        symbols << "This is not a PDB";
-        ASSERT_TRUE(symbols.good());
+        std::ofstream imageStream(dllPath, std::ios::binary);
+        imageStream.write(reinterpret_cast<const char*>(peImageBytes.data()),
+                          static_cast<std::streamsize>(peImageBytes.size()));
+        ASSERT_TRUE(imageStream.good());
+        std::ofstream pdbStream(pdbPath, std::ios::binary);
+        pdbStream << "This is not a PDB";
+        ASSERT_TRUE(pdbStream.good());
     }
-    const std::array names = {std::string_view{"LdrpInitialize"}};
-    EXPECT_THROW(static_cast<void>(symfind::validation::read_pdb_symbols(dll, pdb, names)), std::runtime_error);
+    const std::array symbolNames = {std::string_view{"LdrpInitialize"}};
+    EXPECT_THROW(
+        static_cast<void>(symfind::validation::ReadPdbSymbols(dllPath, pdbPath, symbolNames)),
+        std::runtime_error);
 }
 
 TEST(PdbComparison, WrongFirstCandidateFailsEvenWhenPdbRvaIsAmongCandidates)
 {
-    using namespace symfind::validation;
-    const auto row = compare_symbol("LdrpInitialize", {0x2000}, {0x1000}, {0x1000, 0x2000});
-    EXPECT_EQ(row.status, ComparisonStatus::Mismatch);
-    EXPECT_TRUE(row.ambiguous());
-    EXPECT_EQ(row.candidate_rvas.size(), 2u);
+    const auto comparison =
+        symfind::validation::CompareSymbol("LdrpInitialize", {0x2000}, {0x1000}, {0x1000, 0x2000});
+    EXPECT_EQ(comparison.status, symfind::validation::ComparisonStatus::Mismatch);
+    EXPECT_TRUE(comparison.Ambiguous());
+    EXPECT_EQ(comparison.candidateRvas.size(), 2u);
 }
 
 TEST(PdbComparison, CorrectFirstCandidateRetainsAmbiguity)
 {
-    using namespace symfind::validation;
-    const auto row = compare_symbol("LdrpInitialize", {0x1000}, {0x1000}, {0x1000, 0x2000});
-    EXPECT_EQ(row.status, ComparisonStatus::Match);
-    EXPECT_TRUE(row.ambiguous());
+    const auto comparison =
+        symfind::validation::CompareSymbol("LdrpInitialize", {0x1000}, {0x1000}, {0x1000, 0x2000});
+    EXPECT_EQ(comparison.status, symfind::validation::ComparisonStatus::Match);
+    EXPECT_TRUE(comparison.Ambiguous());
 }
 
 TEST(PdbComparison, MissingPdbNameCannotPassUsingDslCandidate)
 {
-    using namespace symfind::validation;
-    const auto row = compare_symbol("LdrpLoadDll", {}, {0x2000}, {0x2000});
-    EXPECT_EQ(row.status, ComparisonStatus::MissingPdbSymbol);
+    const auto comparison =
+        symfind::validation::CompareSymbol("LdrpLoadDll", {}, {0x2000}, {0x2000});
+    EXPECT_EQ(comparison.status, symfind::validation::ComparisonStatus::MissingPdbSymbol);
 }
 
 TEST(PdbComparison, NoDslCandidateIsReportedSeparately)
 {
-    using namespace symfind::validation;
-    const auto row = compare_symbol("LdrpLoadDll", {0x2000}, {}, {});
-    EXPECT_EQ(row.status, ComparisonStatus::NoMatch);
+    const auto comparison = symfind::validation::CompareSymbol("LdrpLoadDll", {0x2000}, {}, {});
+    EXPECT_EQ(comparison.status, symfind::validation::ComparisonStatus::NoMatch);
 }
 
 TEST(PdbComparison, ConfiguredNtdllSymbolsMatchExactPdbRvas)
 {
-    using namespace symfind::validation;
-    const auto dll = environment_value("SYMFIND_NTDLL_DLL");
-    const auto pdb = environment_value("SYMFIND_NTDLL_PDB");
-    auto corpus = environment_value("SYMFIND_NTDLL_CORPUS");
-    if (dll.empty() && pdb.empty() && corpus.empty())
-        corpus = environment_value("SYMFIND_DEFAULT_NTDLL_CORPUS");
-    if (dll.empty() && pdb.empty() && corpus.empty())
+    const auto dllPath = EnvironmentValue("SYMFIND_NTDLL_DLL");
+    const auto pdbPath = EnvironmentValue("SYMFIND_NTDLL_PDB");
+    auto corpusDirectory = EnvironmentValue("SYMFIND_NTDLL_CORPUS");
+    if (dllPath.empty() && pdbPath.empty() && corpusDirectory.empty())
+    {
+        corpusDirectory = EnvironmentValue("SYMFIND_DEFAULT_NTDLL_CORPUS");
+    }
+    if (dllPath.empty() && pdbPath.empty() && corpusDirectory.empty())
+    {
         GTEST_SKIP() << "PDB validation is not configured. Set SYMFIND_NTDLL_DLL + "
                         "SYMFIND_NTDLL_PDB, or SYMFIND_NTDLL_CORPUS.";
-    ASSERT_TRUE(corpus.empty() || (dll.empty() && pdb.empty()))
+    }
+    ASSERT_TRUE(corpusDirectory.empty() || (dllPath.empty() && pdbPath.empty()))
         << "Choose either an explicit DLL/PDB pair or a corpus directory";
-    ASSERT_TRUE(!corpus.empty() || (!dll.empty() && !pdb.empty()))
+    ASSERT_TRUE(!corpusDirectory.empty() || (!dllPath.empty() && !pdbPath.empty()))
         << "Both SYMFIND_NTDLL_DLL and SYMFIND_NTDLL_PDB are required";
     struct QuietAnalysisLog
     {
-            spdlog::level::level_enum previous = spdlog::get_level();
+            spdlog::level::level_enum previousLogLevel = spdlog::get_level();
             QuietAnalysisLog()
             {
                 spdlog::set_level(spdlog::level::off);
             }
             ~QuietAnalysisLog()
             {
-                spdlog::set_level(previous);
+                spdlog::set_level(previousLogLevel);
             }
-    } quiet_log;
+    } quietAnalysisLog;
 
-    std::vector<std::pair<std::filesystem::path, std::filesystem::path>> pairs;
+    std::vector<std::pair<std::filesystem::path, std::filesystem::path>> imageSymbolPairs;
 
     ASSERT_NO_THROW({
-        if (corpus.empty())
-            pairs.emplace_back(dll, pdb);
+        if (corpusDirectory.empty())
+        {
+            imageSymbolPairs.emplace_back(dllPath, pdbPath);
+        }
         else
-            pairs = find_corpus_pairs(corpus);
+        {
+            imageSymbolPairs = symfind::validation::FindCorpusPairs(corpusDirectory);
+        }
     });
-    ASSERT_FALSE(pairs.empty());
+    ASSERT_FALSE(imageSymbolPairs.empty());
 
-    for (const auto& [image, symbols] : pairs)
+    for (const auto& [image_path, symbols_path] : imageSymbolPairs)
     {
-        SCOPED_TRACE(image.string());
-        ComparisonReport report;
+        SCOPED_TRACE(image_path.string());
+        symfind::validation::ComparisonReport comparisonReport;
         // Once opted in, invalid pairs, missing PDB names and mismatches fail.
-        ASSERT_NO_THROW(report = compare_ntdll_symbols(image, symbols));
-        ASSERT_EQ(report.symbols.size(), ntdll_symbol_rules.size());
-        for (const auto& comparison : report.symbols)
-            EXPECT_EQ(comparison.status, ComparisonStatus::Match) << describe(comparison);
+        ASSERT_NO_THROW(comparisonReport =
+                            symfind::validation::CompareNtdllSymbols(image_path, symbols_path));
+        ASSERT_EQ(comparisonReport.symbols.size(), symfind::validation::ntdllSymbolRules.size());
+        for (const auto& comparison : comparisonReport.symbols)
+        {
+            EXPECT_EQ(comparison.status, symfind::validation::ComparisonStatus::Match)
+                << symfind::validation::Describe(comparison);
+        }
     }
 
     // A loadable PDB for a different RSDS identity must never serve as an oracle.
-    TemporaryPair mismatched;
-    const auto wrong_dll = mismatched.directory / "ntdll.dll";
-    auto bytes = sample_pe();
-    const auto actual_identity = read_pe_identity(pairs.front().first);
-    std::memcpy(bytes.data() + 0x244, actual_identity.guid.data(), actual_identity.guid.size());
-    bytes[0x244] ^= 1; // Guaranteed different GUID; retain the real PDB age.
-    put(bytes, 0x254, actual_identity.age);
-    put(bytes, 0x58 + offsetof(IMAGE_OPTIONAL_HEADER64, SizeOfImage), actual_identity.image_size);
+    TemporaryPair mismatchedPair;
+    const auto mismatchedDllPath = mismatchedPair.temporaryDirectory / "ntdll.dll";
+    auto peImageBytes = SamplePe();
+    const auto expectedPdbIdentity =
+        symfind::validation::ReadPeIdentity(imageSymbolPairs.front().first);
+    std::memcpy(peImageBytes.data() + 0x244, expectedPdbIdentity.guid.data(),
+                expectedPdbIdentity.guid.size());
+    peImageBytes[0x244] ^= 1; // Guaranteed different GUID; retain the real PDB age.
+    Put(peImageBytes, 0x254, expectedPdbIdentity.age);
+    Put(peImageBytes, 0x58 + offsetof(IMAGE_OPTIONAL_HEADER64, SizeOfImage),
+        expectedPdbIdentity.imageSize);
     {
-        std::ofstream image(wrong_dll, std::ios::binary);
-        image.write(reinterpret_cast<const char*>(bytes.data()), bytes.size());
-        ASSERT_TRUE(image.good());
+        std::ofstream imageStream(mismatchedDllPath, std::ios::binary);
+        imageStream.write(reinterpret_cast<const char*>(peImageBytes.data()), peImageBytes.size());
+        ASSERT_TRUE(imageStream.good());
     }
-    const std::array names = {std::string_view{"LdrpInitialize"}};
+    const std::array symbolNames = {std::string_view{"LdrpInitialize"}};
     try
     {
-        static_cast<void>(read_pdb_symbols(wrong_dll, pairs.front().second, names));
+        static_cast<void>(symfind::validation::ReadPdbSymbols(
+            mismatchedDllPath, imageSymbolPairs.front().second, symbolNames));
         FAIL() << "Accepted a PDB with a different GUID";
     }
     catch (const std::runtime_error& error)

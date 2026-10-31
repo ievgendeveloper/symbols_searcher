@@ -27,42 +27,52 @@ namespace symfind::validation
     namespace
     {
         template <class T>
-        T read_object(std::span<const uint8_t> bytes, size_t offset)
+        T ReadObject(nonstd::span<const uint8_t> sourceBytes, size_t objectOffset)
         {
-            if (offset > bytes.size() || sizeof(T) > bytes.size() - offset)
+            if (objectOffset > sourceBytes.size() || sizeof(T) > sourceBytes.size() - objectOffset)
+            {
                 throw std::runtime_error("Truncated PE metadata");
-            T result{};
-            std::memcpy(&result, bytes.data() + offset, sizeof(T));
-            return result;
+            }
+            T parsedObject{};
+            std::memcpy(&parsedObject, sourceBytes.data() + objectOffset, sizeof(T));
+            return parsedObject;
         }
 
-        std::vector<uint8_t> read_file(const std::filesystem::path& path)
+        std::vector<uint8_t> ReadFile(const std::filesystem::path& dllPath)
         {
-            std::ifstream input(path, std::ios::binary | std::ios::ate);
-            if (!input)
-                throw std::runtime_error("Cannot open DLL: " + path.string());
-            const auto length = input.tellg();
-            if (length <= 0)
-                throw std::runtime_error("Empty or unreadable DLL: " + path.string());
-            std::vector<uint8_t> bytes(static_cast<size_t>(length));
-            input.seekg(0);
-            if (!input.read(reinterpret_cast<char*>(bytes.data()), length))
-                throw std::runtime_error("Cannot read DLL: " + path.string());
-            return bytes;
+            std::ifstream dllStream(dllPath, std::ios::binary | std::ios::ate);
+            if (!dllStream)
+            {
+                throw std::runtime_error("Cannot open DLL: " + dllPath.string());
+            }
+            const auto fileSize = dllStream.tellg();
+            if (fileSize <= 0)
+            {
+                throw std::runtime_error("Empty or unreadable DLL: " + dllPath.string());
+            }
+            std::vector<uint8_t> dllBytes(static_cast<size_t>(fileSize));
+            dllStream.seekg(0);
+            if (!dllStream.read(reinterpret_cast<char*>(dllBytes.data()), fileSize))
+            {
+                throw std::runtime_error("Cannot read DLL: " + dllPath.string());
+            }
+            return dllBytes;
         }
 
-        std::string win_error(std::string_view operation)
+        std::string WinError(std::string_view operation)
         {
             return std::string(operation) + " failed (Win32 error " +
                    std::to_string(GetLastError()) + ")";
         }
 
-        std::mutex dbghelp_mutex;
+        std::mutex dbghelpMutex;
 
-        BOOL CALLBACK debug_symbols(HANDLE, ULONG action, ULONG64 data, ULONG64)
+        BOOL CALLBACK DebugSymbols(HANDLE, ULONG callbackAction, ULONG64 callbackData, ULONG64)
         {
-            if (action == CBA_DEBUG_INFO)
-                std::fputs(reinterpret_cast<const char*>(data), stderr);
+            if (callbackAction == CBA_DEBUG_INFO)
+            {
+                std::fputs(reinterpret_cast<const char*>(callbackData), stderr);
+            }
             return FALSE;
         }
 
@@ -72,41 +82,49 @@ namespace symfind::validation
         class StagedPdb
         {
             public:
-                StagedPdb(const std::filesystem::path& source, const std::string& rsds_name)
+                StagedPdb(const std::filesystem::path& sourcePdbPath,
+                          const std::string& rsdsPdbName)
                 {
-                    const std::filesystem::path basename = rsds_name;
-                    if (basename.filename() != basename ||
-                        _wcsicmp(basename.extension().c_str(), L".pdb") != 0)
-                        throw std::runtime_error("DLL RSDS contains an invalid PDB basename");
-                    static std::atomic<unsigned> counter{0};
-                    for (unsigned attempt = 0; attempt < 100; ++attempt)
+                    const std::filesystem::path pdbBasename = rsdsPdbName;
+                    if (pdbBasename.filename() != pdbBasename ||
+                        _wcsicmp(pdbBasename.extension().c_str(), L".pdb") != 0)
                     {
-                        directory_ = std::filesystem::temp_directory_path() /
-                                     ("symfind-pdb-" + std::to_string(GetCurrentProcessId()) + "-" +
-                                      std::to_string(GetTickCount64()) + "-" + std::to_string(counter++));
-                        if (std::filesystem::create_directory(directory_))
-                            break;
-                        directory_.clear();
+                        throw std::runtime_error("DLL RSDS contains an invalid PDB basename");
                     }
-                    if (directory_.empty())
+                    static std::atomic<unsigned> stagingSequence{0};
+                    for (unsigned creationAttempt = 0; creationAttempt < 100; ++creationAttempt)
+                    {
+                        m_directory = std::filesystem::temp_directory_path() /
+                                      ("symfind-pdb-" + std::to_string(GetCurrentProcessId()) +
+                                       "-" + std::to_string(GetTickCount64()) + "-" +
+                                       std::to_string(stagingSequence++));
+                        if (std::filesystem::create_directory(m_directory))
+                        {
+                            break;
+                        }
+                        m_directory.clear();
+                    }
+                    if (m_directory.empty())
+                    {
                         throw std::runtime_error("Could not create isolated PDB search directory");
-                    path = directory_ / basename;
+                    }
+                    path = m_directory / pdbBasename;
                     try
                     {
-                        std::filesystem::copy_file(source, path);
+                        std::filesystem::copy_file(sourcePdbPath, path);
                     }
                     catch (...)
                     {
-                        std::error_code ignored;
-                        std::filesystem::remove_all(directory_, ignored);
+                        std::error_code cleanupError;
+                        std::filesystem::remove_all(m_directory, cleanupError);
                         throw;
                     }
                 }
 
                 ~StagedPdb()
                 {
-                    std::error_code ignored;
-                    std::filesystem::remove_all(directory_, ignored);
+                    std::error_code cleanupError;
+                    std::filesystem::remove_all(m_directory, cleanupError);
                 }
 
                 StagedPdb(const StagedPdb&) = delete;
@@ -114,7 +132,7 @@ namespace symfind::validation
                 std::filesystem::path path;
 
             private:
-                std::filesystem::path directory_;
+                std::filesystem::path m_directory;
         };
 
         // DbgHelp has process-global options and is not thread-safe. The lock
@@ -122,39 +140,45 @@ namespace symfind::validation
         class SymbolSession
         {
             public:
-                explicit SymbolSession(const std::filesystem::path& pdb)
-                    : lock_(dbghelp_mutex), old_options_(SymGetOptions())
+                explicit SymbolSession(const std::filesystem::path& pdbPath)
+                    : m_lock(dbghelpMutex), m_oldOptions(SymGetOptions())
                 {
-                    const auto debug = GetEnvironmentVariableW(L"SYMFIND_PDB_DEBUG", nullptr, 0) != 0;
-                    SymSetOptions(SYMOPT_EXACT_SYMBOLS |
-                                  SYMOPT_IGNORE_NT_SYMPATH | SYMOPT_FAIL_CRITICAL_ERRORS |
-                                  SYMOPT_NO_PROMPTS | SYMOPT_NO_IMAGE_SEARCH |
-                                  SYMOPT_IGNORE_CVREC | SYMOPT_IGNORE_IMAGEDIR |
-                                  SYMOPT_DISABLE_SYMSRV_AUTODETECT | (debug ? SYMOPT_DEBUG : 0));
-                    const auto search_path = pdb.parent_path().wstring();
-                    if (!SymInitializeW(handle(), search_path.c_str(), FALSE))
+                    const auto debugLoggingEnabled =
+                        GetEnvironmentVariableW(L"SYMFIND_PDB_DEBUG", nullptr, 0) != 0;
+                    SymSetOptions(SYMOPT_EXACT_SYMBOLS | SYMOPT_IGNORE_NT_SYMPATH |
+                                  SYMOPT_FAIL_CRITICAL_ERRORS | SYMOPT_NO_PROMPTS |
+                                  SYMOPT_NO_IMAGE_SEARCH | SYMOPT_IGNORE_CVREC |
+                                  SYMOPT_IGNORE_IMAGEDIR | SYMOPT_DISABLE_SYMSRV_AUTODETECT |
+                                  (debugLoggingEnabled ? SYMOPT_DEBUG : 0));
+                    const auto symbolSearchPath = pdbPath.parent_path().wstring();
+                    if (!SymInitializeW(Handle(), symbolSearchPath.c_str(), FALSE))
                     {
-                        const auto error = win_error("SymInitializeW");
-                        SymSetOptions(old_options_);
-                        throw std::runtime_error(error);
+                        const auto initializationError = WinError("SymInitializeW");
+                        SymSetOptions(m_oldOptions);
+                        throw std::runtime_error(initializationError);
                     }
-                    if (debug)
-                        SymRegisterCallback64(handle(), debug_symbols, 0);
+                    if (debugLoggingEnabled)
+                    {
+                        SymRegisterCallback64(Handle(), DebugSymbols, 0);
+                    }
                 }
 
                 ~SymbolSession()
                 {
-                    SymCleanup(handle());
-                    SymSetOptions(old_options_);
+                    SymCleanup(Handle());
+                    SymSetOptions(m_oldOptions);
                 }
 
                 SymbolSession(const SymbolSession&) = delete;
                 SymbolSession& operator=(const SymbolSession&) = delete;
-                [[nodiscard]] HANDLE handle() { return reinterpret_cast<HANDLE>(this); }
+                [[nodiscard]] HANDLE Handle()
+                {
+                    return reinterpret_cast<HANDLE>(this);
+                }
 
             private:
-                std::unique_lock<std::mutex> lock_;
-                DWORD old_options_;
+                std::unique_lock<std::mutex> m_lock;
+                DWORD m_oldOptions;
         };
 
         struct EnumerationContext
@@ -164,266 +188,373 @@ namespace symfind::validation
                 std::exception_ptr error;
         };
 
-        BOOL CALLBACK collect_symbol(PSYMBOL_INFO symbol, ULONG, PVOID raw_context)
+        BOOL CALLBACK CollectSymbol(PSYMBOL_INFO symbolInformation, ULONG, PVOID callbackContext)
         {
-            auto& context = *static_cast<EnumerationContext*>(raw_context);
+            auto& enumerationContext = *static_cast<EnumerationContext*>(callbackContext);
             try
             {
-                const std::string name(symbol->Name, symbol->NameLen);
-                const auto it = context.result.rvas.find(name);
-                if (it == context.result.rvas.end())
+                const std::string symbolName(symbolInformation->Name, symbolInformation->NameLen);
+                const auto symbolEntry = enumerationContext.result.rvas.find(symbolName);
+                if (symbolEntry == enumerationContext.result.rvas.end())
+                {
                     return TRUE;
-                if ((symbol->Flags & SYMFLAG_EXPORT) != 0)
-                    throw std::runtime_error("Export fallback rejected for " + name);
-                if (symbol->ModBase != context.base || symbol->Address < context.base ||
-                    symbol->Address - context.base >= context.result.identity.image_size)
-                    throw std::runtime_error("PDB symbol is outside the DLL image: " + name);
-                it->second.push_back(symbol->Address - context.base);
+                }
+                if ((symbolInformation->Flags & SYMFLAG_EXPORT) != 0)
+                {
+                    throw std::runtime_error("Export fallback rejected for " + symbolName);
+                }
+                if (symbolInformation->ModBase != enumerationContext.base ||
+                    symbolInformation->Address < enumerationContext.base ||
+                    symbolInformation->Address - enumerationContext.base >=
+                        enumerationContext.result.identity.imageSize)
+                {
+                    throw std::runtime_error("PDB symbol is outside the DLL image: " + symbolName);
+                }
+                symbolEntry->second.push_back(symbolInformation->Address - enumerationContext.base);
                 return TRUE;
             }
             catch (...)
             {
-                context.error = std::current_exception();
+                enumerationContext.error = std::current_exception();
                 return FALSE;
             }
         }
 
-        void deduplicate(std::vector<uint64_t>& rvas)
+        void Deduplicate(std::vector<uint64_t>& rvas)
         {
             std::sort(rvas.begin(), rvas.end());
             rvas.erase(std::unique(rvas.begin(), rvas.end()), rvas.end());
         }
 
-        std::vector<uint64_t> match_rvas(const std::vector<dsl::MatchResult>& matches)
+        std::vector<uint64_t> MatchRvas(const std::vector<dsl::MatchResult>& matchedSymbols)
         {
-            std::vector<uint64_t> result;
-            result.reserve(matches.size());
-            for (const auto& match : matches)
-                result.push_back(match.rva);
-            return result;
-        }
-
-        std::string format_rvas(const std::vector<uint64_t>& rvas)
-        {
-            std::ostringstream out;
-            out << std::hex << std::uppercase;
-            for (size_t i = 0; i < rvas.size(); ++i)
+            std::vector<uint64_t> matchedRvas;
+            matchedRvas.reserve(matchedSymbols.size());
+            for (const auto& matchedSymbol : matchedSymbols)
             {
-                if (i != 0)
-                    out << ';';
-                out << "0x" << rvas[i];
+                matchedRvas.push_back(matchedSymbol.rva);
             }
-            return out.str();
+            return matchedRvas;
         }
 
-        std::string csv_cell(std::string_view text)
+        std::string FormatRvas(const std::vector<uint64_t>& rvas)
         {
-            std::string result = "\"";
-            for (const char character : text)
+            std::ostringstream formattedRvas;
+            formattedRvas << std::hex << std::uppercase;
+            for (size_t rvaIndex = 0; rvaIndex < rvas.size(); ++rvaIndex)
+            {
+                if (rvaIndex != 0)
+                {
+                    formattedRvas << ';';
+                }
+                formattedRvas << "0x" << rvas[rvaIndex];
+            }
+            return formattedRvas.str();
+        }
+
+        std::string CsvCell(std::string_view cellText)
+        {
+            std::string escapedCell = "\"";
+            for (const char character : cellText)
             {
                 if (character == '"')
-                    result += '"';
-                result += character;
+                {
+                    escapedCell += '"';
+                }
+                escapedCell += character;
             }
-            return result + '"';
+            return escapedCell + '"';
         }
     } // namespace
 
-    std::string PdbIdentity::key() const
+    std::string PdbIdentity::Key() const
     {
         // The symbol-server GUID spelling follows GUID fields, not memory byte order.
-        GUID value{};
-        std::memcpy(&value, guid.data(), sizeof(value));
-        std::ostringstream out;
-        out << std::hex << std::uppercase << std::setfill('0')
-            << std::setw(8) << value.Data1 << std::setw(4) << value.Data2
-            << std::setw(4) << value.Data3;
-        for (const auto byte : value.Data4)
-            out << std::setw(2) << static_cast<unsigned>(byte);
-        out << age;
-        return out.str();
+        GUID guidValue{};
+        std::memcpy(&guidValue, guid.data(), sizeof(guidValue));
+        std::ostringstream formattedIdentity;
+        formattedIdentity << std::hex << std::uppercase << std::setfill('0') << std::setw(8)
+                          << guidValue.Data1 << std::setw(4) << guidValue.Data2 << std::setw(4)
+                          << guidValue.Data3;
+        for (const auto guidByte : guidValue.Data4)
+        {
+            formattedIdentity << std::setw(2) << static_cast<unsigned>(guidByte);
+        }
+        formattedIdentity << age;
+        return formattedIdentity.str();
     }
 
-    PdbIdentity read_pe_identity(std::span<const uint8_t> bytes)
+    PdbIdentity ReadPeIdentity(nonstd::span<const uint8_t> imageBytes)
     {
-        const auto dos = read_object<IMAGE_DOS_HEADER>(bytes, 0);
-        if (dos.e_magic != IMAGE_DOS_SIGNATURE || dos.e_lfanew < 0)
+        const auto dosHeader = ReadObject<IMAGE_DOS_HEADER>(imageBytes, 0);
+        if (dosHeader.e_magic != IMAGE_DOS_SIGNATURE || dosHeader.e_lfanew < 0)
+        {
             throw std::runtime_error("Invalid DOS header");
-        const auto nt_offset = static_cast<size_t>(dos.e_lfanew);
-        if (read_object<DWORD>(bytes, nt_offset) != IMAGE_NT_SIGNATURE)
-            throw std::runtime_error("Invalid PE signature");
-        const auto coff = read_object<IMAGE_FILE_HEADER>(bytes, nt_offset + sizeof(DWORD));
-        const auto optional_offset = nt_offset + sizeof(DWORD) + sizeof(IMAGE_FILE_HEADER);
-        if (coff.SizeOfOptionalHeader > bytes.size() ||
-            optional_offset > bytes.size() - coff.SizeOfOptionalHeader)
-            throw std::runtime_error("Truncated optional header");
-        const auto magic = read_object<WORD>(bytes, optional_offset);
-        PdbIdentity result;
-        result.machine = coff.Machine;
-        IMAGE_DATA_DIRECTORY debug{};
-        uint32_t headers_size = 0;
-        if (magic == IMAGE_NT_OPTIONAL_HDR64_MAGIC)
-        {
-            if (coff.SizeOfOptionalHeader < sizeof(IMAGE_OPTIONAL_HEADER64))
-                throw std::runtime_error("Truncated PE32+ optional header");
-            const auto optional = read_object<IMAGE_OPTIONAL_HEADER64>(bytes, optional_offset);
-            if (optional.NumberOfRvaAndSizes <= IMAGE_DIRECTORY_ENTRY_DEBUG)
-                throw std::runtime_error("DLL has no debug directory");
-            result.image_size = optional.SizeOfImage;
-            headers_size = optional.SizeOfHeaders;
-            debug = optional.DataDirectory[IMAGE_DIRECTORY_ENTRY_DEBUG];
         }
-        else if (magic == IMAGE_NT_OPTIONAL_HDR32_MAGIC)
+        const auto ntHeadersOffset = static_cast<size_t>(dosHeader.e_lfanew);
+        if (ReadObject<DWORD>(imageBytes, ntHeadersOffset) != IMAGE_NT_SIGNATURE)
         {
-            if (coff.SizeOfOptionalHeader < sizeof(IMAGE_OPTIONAL_HEADER32))
-                throw std::runtime_error("Truncated PE32 optional header");
-            const auto optional = read_object<IMAGE_OPTIONAL_HEADER32>(bytes, optional_offset);
-            if (optional.NumberOfRvaAndSizes <= IMAGE_DIRECTORY_ENTRY_DEBUG)
+            throw std::runtime_error("Invalid PE signature");
+        }
+        const auto coffHeader =
+            ReadObject<IMAGE_FILE_HEADER>(imageBytes, ntHeadersOffset + sizeof(DWORD));
+        const auto optionalHeaderOffset =
+            ntHeadersOffset + sizeof(DWORD) + sizeof(IMAGE_FILE_HEADER);
+        if (coffHeader.SizeOfOptionalHeader > imageBytes.size() ||
+            optionalHeaderOffset > imageBytes.size() - coffHeader.SizeOfOptionalHeader)
+        {
+            throw std::runtime_error("Truncated optional header");
+        }
+        const auto optionalHeaderMagic = ReadObject<WORD>(imageBytes, optionalHeaderOffset);
+        PdbIdentity pdbIdentity;
+        pdbIdentity.machine = coffHeader.Machine;
+        IMAGE_DATA_DIRECTORY debugDirectory{};
+        uint32_t peHeadersSize = 0;
+        if (optionalHeaderMagic == IMAGE_NT_OPTIONAL_HDR64_MAGIC)
+        {
+            if (coffHeader.SizeOfOptionalHeader < sizeof(IMAGE_OPTIONAL_HEADER64))
+            {
+                throw std::runtime_error("Truncated PE32+ optional header");
+            }
+            const auto optionalHeader =
+                ReadObject<IMAGE_OPTIONAL_HEADER64>(imageBytes, optionalHeaderOffset);
+            if (optionalHeader.NumberOfRvaAndSizes <= IMAGE_DIRECTORY_ENTRY_DEBUG)
+            {
                 throw std::runtime_error("DLL has no debug directory");
-            result.image_size = optional.SizeOfImage;
-            headers_size = optional.SizeOfHeaders;
-            debug = optional.DataDirectory[IMAGE_DIRECTORY_ENTRY_DEBUG];
+            }
+            pdbIdentity.imageSize = optionalHeader.SizeOfImage;
+            peHeadersSize = optionalHeader.SizeOfHeaders;
+            debugDirectory = optionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_DEBUG];
+        }
+        else if (optionalHeaderMagic == IMAGE_NT_OPTIONAL_HDR32_MAGIC)
+        {
+            if (coffHeader.SizeOfOptionalHeader < sizeof(IMAGE_OPTIONAL_HEADER32))
+            {
+                throw std::runtime_error("Truncated PE32 optional header");
+            }
+            const auto optionalHeader =
+                ReadObject<IMAGE_OPTIONAL_HEADER32>(imageBytes, optionalHeaderOffset);
+            if (optionalHeader.NumberOfRvaAndSizes <= IMAGE_DIRECTORY_ENTRY_DEBUG)
+            {
+                throw std::runtime_error("DLL has no debug directory");
+            }
+            pdbIdentity.imageSize = optionalHeader.SizeOfImage;
+            peHeadersSize = optionalHeader.SizeOfHeaders;
+            debugDirectory = optionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_DEBUG];
         }
         else
-            throw std::runtime_error("Unsupported PE optional header");
-
-        if (result.image_size == 0 || debug.VirtualAddress == 0 || debug.Size == 0 ||
-            debug.Size % sizeof(IMAGE_DEBUG_DIRECTORY) != 0)
-            throw std::runtime_error("DLL has no valid debug directory");
-
-        const auto section_offset = optional_offset + coff.SizeOfOptionalHeader;
-        if (section_offset > bytes.size() ||
-            coff.NumberOfSections > (bytes.size() - section_offset) / sizeof(IMAGE_SECTION_HEADER))
-            throw std::runtime_error("Truncated section headers");
-        const auto rva_to_offset = [&](uint32_t rva, uint32_t length) -> size_t
         {
-            if (rva < headers_size && length <= headers_size - rva)
+            throw std::runtime_error("Unsupported PE optional header");
+        }
+
+        if (pdbIdentity.imageSize == 0 || debugDirectory.VirtualAddress == 0 ||
+            debugDirectory.Size == 0 || debugDirectory.Size % sizeof(IMAGE_DEBUG_DIRECTORY) != 0)
+        {
+            throw std::runtime_error("DLL has no valid debug directory");
+        }
+
+        const auto sectionHeadersOffset = optionalHeaderOffset + coffHeader.SizeOfOptionalHeader;
+        if (sectionHeadersOffset > imageBytes.size() ||
+            coffHeader.NumberOfSections >
+                (imageBytes.size() - sectionHeadersOffset) / sizeof(IMAGE_SECTION_HEADER))
+        {
+            throw std::runtime_error("Truncated section headers");
+        }
+        const auto rvaToFileOffset = [&](uint32_t requestedRva, uint32_t requestedSize) -> size_t
+        {
+            if (requestedRva < peHeadersSize && requestedSize <= peHeadersSize - requestedRva)
             {
-                if (rva > bytes.size() || length > bytes.size() - rva)
-                    throw std::runtime_error("Debug directory is outside DLL file");
-                return rva;
-            }
-            for (size_t i = 0; i < coff.NumberOfSections; ++i)
-            {
-                const auto section = read_object<IMAGE_SECTION_HEADER>(
-                    bytes, section_offset + i * sizeof(IMAGE_SECTION_HEADER));
-                if (rva >= section.VirtualAddress)
+                if (requestedRva > imageBytes.size() ||
+                    requestedSize > imageBytes.size() - requestedRva)
                 {
-                    const uint64_t delta = uint64_t{rva} - section.VirtualAddress;
-                    if (delta < section.SizeOfRawData && length <= section.SizeOfRawData - delta)
+                    throw std::runtime_error("Debug directory is outside DLL file");
+                }
+                return requestedRva;
+            }
+            for (size_t sectionIndex = 0; sectionIndex < coffHeader.NumberOfSections;
+                 ++sectionIndex)
+            {
+                const auto sectionHeader = ReadObject<IMAGE_SECTION_HEADER>(
+                    imageBytes, sectionHeadersOffset + sectionIndex * sizeof(IMAGE_SECTION_HEADER));
+                if (requestedRva >= sectionHeader.VirtualAddress)
+                {
+                    const uint64_t sectionRelativeOffset =
+                        uint64_t{requestedRva} - sectionHeader.VirtualAddress;
+                    if (sectionRelativeOffset < sectionHeader.SizeOfRawData &&
+                        requestedSize <= sectionHeader.SizeOfRawData - sectionRelativeOffset)
                     {
-                        const uint64_t offset = uint64_t{section.PointerToRawData} + delta;
-                        if (offset > bytes.size() || length > bytes.size() - offset)
+                        const uint64_t fileOffset =
+                            uint64_t{sectionHeader.PointerToRawData} + sectionRelativeOffset;
+                        if (fileOffset > imageBytes.size() ||
+                            requestedSize > imageBytes.size() - fileOffset)
+                        {
                             throw std::runtime_error("Debug directory is outside DLL file");
-                        return static_cast<size_t>(offset);
+                        }
+                        return static_cast<size_t>(fileOffset);
                     }
                 }
             }
             throw std::runtime_error("Debug directory RVA is not backed by file data");
         };
 
-        const auto directory_offset = rva_to_offset(debug.VirtualAddress, debug.Size);
-        bool found = false;
-        for (size_t i = 0; i < debug.Size / sizeof(IMAGE_DEBUG_DIRECTORY); ++i)
+        const auto debugDirectoryOffset =
+            rvaToFileOffset(debugDirectory.VirtualAddress, debugDirectory.Size);
+        bool foundRsdsRecord = false;
+        for (size_t debugEntryIndex = 0;
+             debugEntryIndex < debugDirectory.Size / sizeof(IMAGE_DEBUG_DIRECTORY);
+             ++debugEntryIndex)
         {
-            const auto entry = read_object<IMAGE_DEBUG_DIRECTORY>(
-                bytes, directory_offset + i * sizeof(IMAGE_DEBUG_DIRECTORY));
-            if (entry.Type != IMAGE_DEBUG_TYPE_CODEVIEW || entry.SizeOfData < 25)
+            const auto debugEntry = ReadObject<IMAGE_DEBUG_DIRECTORY>(
+                imageBytes, debugDirectoryOffset + debugEntryIndex * sizeof(IMAGE_DEBUG_DIRECTORY));
+            if (debugEntry.Type != IMAGE_DEBUG_TYPE_CODEVIEW || debugEntry.SizeOfData < 25)
+            {
                 continue;
-            const size_t record_offset = entry.PointerToRawData;
-            if (record_offset > bytes.size() || entry.SizeOfData > bytes.size() - record_offset)
+            }
+            const size_t codeviewRecordOffset = debugEntry.PointerToRawData;
+            if (codeviewRecordOffset > imageBytes.size() ||
+                debugEntry.SizeOfData > imageBytes.size() - codeviewRecordOffset)
+            {
                 throw std::runtime_error("CodeView record is outside DLL file");
-            const auto record = bytes.subspan(record_offset, entry.SizeOfData);
-            if (std::memcmp(record.data(), "RSDS", 4) != 0)
+            }
+            const auto codeviewRecord =
+                imageBytes.subspan(codeviewRecordOffset, debugEntry.SizeOfData);
+            if (std::memcmp(codeviewRecord.data(), "RSDS", 4) != 0)
+            {
                 continue;
-            if (found)
+            }
+            if (foundRsdsRecord)
+            {
                 throw std::runtime_error("Multiple RSDS records are unsupported");
-            std::memcpy(result.guid.data(), record.data() + 4, result.guid.size());
-            result.age = read_object<uint32_t>(record, 20);
-            const auto terminator = std::find(record.begin() + 24, record.end(), uint8_t{0});
-            if (terminator == record.end() || terminator == record.begin() + 24)
+            }
+            std::memcpy(pdbIdentity.guid.data(), codeviewRecord.data() + 4,
+                        pdbIdentity.guid.size());
+            pdbIdentity.age = ReadObject<uint32_t>(codeviewRecord, 20);
+            const auto pdbNameTerminator =
+                std::find(codeviewRecord.begin() + 24, codeviewRecord.end(), uint8_t{0});
+            if (pdbNameTerminator == codeviewRecord.end() ||
+                pdbNameTerminator == codeviewRecord.begin() + 24)
+            {
                 throw std::runtime_error("Missing PDB name in RSDS record");
-            const std::string embedded_name(record.begin() + 24, terminator);
-            const auto separator = embedded_name.find_last_of("/\\");
-            result.pdb_name = embedded_name.substr(separator == std::string::npos ? 0 : separator + 1);
-            found = true;
+            }
+            const std::string embeddedPdbPath(codeviewRecord.begin() + 24, pdbNameTerminator);
+            const auto pathSeparator = embeddedPdbPath.find_last_of("/\\");
+            pdbIdentity.pdbName =
+                embeddedPdbPath.substr(pathSeparator == std::string::npos ? 0 : pathSeparator + 1);
+            foundRsdsRecord = true;
         }
-        if (!found)
+        if (!foundRsdsRecord)
+        {
             throw std::runtime_error("DLL has no RSDS PDB identity");
-        return result;
+        }
+        return pdbIdentity;
     }
 
-    PdbIdentity read_pe_identity(const std::filesystem::path& dll)
+    PdbIdentity ReadPeIdentity(const std::filesystem::path& dllPath)
     {
-        return read_pe_identity(read_file(dll));
+        return ReadPeIdentity(ReadFile(dllPath));
     }
 
-    PdbSymbols read_pdb_symbols(const std::filesystem::path& dll,
-                                const std::filesystem::path& pdb,
-                                std::span<const std::string_view> names)
+    PdbSymbols ReadPdbSymbols(const std::filesystem::path& dllPath,
+                              const std::filesystem::path& pdbPath,
+                              nonstd::span<const std::string_view> symbolNames)
     {
-        PdbSymbols result{read_pe_identity(dll), {}};
-        if (result.identity.machine != IMAGE_FILE_MACHINE_AMD64)
+        PdbSymbols pdbSymbols{ReadPeIdentity(dllPath), {}};
+        if (pdbSymbols.identity.machine != IMAGE_FILE_MACHINE_AMD64)
+        {
             throw std::runtime_error("PDB comparison currently supports AMD64 DLLs only");
-        if (!std::filesystem::is_regular_file(pdb))
-            throw std::runtime_error("Explicit PDB file is missing: " + pdb.string());
-        const auto explicit_pdb = std::filesystem::canonical(pdb);
-        if (_wcsicmp(explicit_pdb.extension().c_str(), L".pdb") != 0)
+        }
+        if (!std::filesystem::is_regular_file(pdbPath))
+        {
+            throw std::runtime_error("Explicit PDB file is missing: " + pdbPath.string());
+        }
+        const auto canonicalPdbPath = std::filesystem::canonical(pdbPath);
+        if (_wcsicmp(canonicalPdbPath.extension().c_str(), L".pdb") != 0)
+        {
             throw std::runtime_error("Explicit symbol file must have a .pdb extension");
-        for (const auto name : names)
-            result.rvas.emplace(std::string(name), std::vector<uint64_t>{});
+        }
+        for (const auto symbolName : symbolNames)
+        {
+            pdbSymbols.rvas.emplace(std::string(symbolName), std::vector<uint64_t>{});
+        }
 
-        const StagedPdb staged_pdb(explicit_pdb, result.identity.pdb_name);
-        SymbolSession session(staged_pdb.path);
-        constexpr DWORD64 base = 0x10000000;
-        const auto explicit_dll = std::filesystem::canonical(dll);
+        const StagedPdb stagedPdb(canonicalPdbPath, pdbSymbols.identity.pdbName);
+        SymbolSession symbolSession(stagedPdb.path);
+        constexpr DWORD64 moduleBaseAddress = 0x10000000;
+        const auto canonicalDllPath = std::filesystem::canonical(dllPath);
         struct ImageHandle
         {
                 HANDLE value;
                 ~ImageHandle()
                 {
                     if (value != INVALID_HANDLE_VALUE)
+                    {
                         CloseHandle(value);
+                    }
                 }
-        } image_file{CreateFileW(explicit_dll.c_str(), GENERIC_READ, FILE_SHARE_READ,
-                                 nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr)};
-        if (image_file.value == INVALID_HANDLE_VALUE)
-            throw std::runtime_error(win_error("CreateFileW(DLL)"));
-        const auto loaded_base = SymLoadModuleExW(
-            session.handle(), image_file.value, explicit_dll.c_str(), nullptr,
-            base, result.identity.image_size, nullptr, 0);
-        if (loaded_base == 0)
-            throw std::runtime_error(win_error("SymLoadModuleExW"));
-        IMAGEHLP_MODULEW64 information{};
-        information.SizeOfStruct = sizeof(information);
-        if (!SymGetModuleInfoW64(session.handle(), loaded_base, &information))
-            throw std::runtime_error(win_error("SymGetModuleInfoW64"));
-        if (information.SymType != SymPdb || information.PdbUnmatched || information.DbgUnmatched)
-            throw std::runtime_error("DbgHelp rejected explicit PDB for DLL RSDS GUID+age (export fallback rejected): SymType=" +
-                                     std::to_string(information.SymType) + ", PdbUnmatched=" + std::to_string(information.PdbUnmatched) +
-                                     ", DbgUnmatched=" + std::to_string(information.DbgUnmatched) +
-                                     ", PdbAge=" + std::to_string(information.PdbAge));
-        if (std::memcmp(&information.PdbSig70, result.identity.guid.data(), 16) != 0 ||
-            information.PdbAge != result.identity.age)
-            throw std::runtime_error("PDB GUID+age does not match DLL RSDS identity " + result.identity.key());
-        if (information.LoadedPdbName[0] == L'\0' ||
-            !std::filesystem::equivalent(staged_pdb.path, std::filesystem::path(information.LoadedPdbName)))
+        } dllFile{CreateFileW(canonicalDllPath.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
+                              OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr)};
+        if (dllFile.value == INVALID_HANDLE_VALUE)
+        {
+            throw std::runtime_error(WinError("CreateFileW(DLL)"));
+        }
+        const auto loadedModuleBase =
+            SymLoadModuleExW(symbolSession.Handle(), dllFile.value, canonicalDllPath.c_str(),
+                             nullptr, moduleBaseAddress, pdbSymbols.identity.imageSize, nullptr, 0);
+        if (loadedModuleBase == 0)
+        {
+            throw std::runtime_error(WinError("SymLoadModuleExW"));
+        }
+        IMAGEHLP_MODULEW64 moduleInformation{};
+        moduleInformation.SizeOfStruct = sizeof(moduleInformation);
+        if (!SymGetModuleInfoW64(symbolSession.Handle(), loadedModuleBase, &moduleInformation))
+        {
+            throw std::runtime_error(WinError("SymGetModuleInfoW64"));
+        }
+        if (moduleInformation.SymType != SymPdb || moduleInformation.PdbUnmatched ||
+            moduleInformation.DbgUnmatched)
+        {
+            throw std::runtime_error(
+                "DbgHelp rejected explicit PDB for DLL RSDS GUID+age (export fallback rejected): "
+                "SymType=" +
+                std::to_string(moduleInformation.SymType) +
+                ", PdbUnmatched=" + std::to_string(moduleInformation.PdbUnmatched) +
+                ", DbgUnmatched=" + std::to_string(moduleInformation.DbgUnmatched) +
+                ", PdbAge=" + std::to_string(moduleInformation.PdbAge));
+        }
+        if (std::memcmp(&moduleInformation.PdbSig70, pdbSymbols.identity.guid.data(), 16) != 0 ||
+            moduleInformation.PdbAge != pdbSymbols.identity.age)
+        {
+            throw std::runtime_error("PDB GUID+age does not match DLL RSDS identity " +
+                                     pdbSymbols.identity.Key());
+        }
+        if (moduleInformation.LoadedPdbName[0] == L'\0' ||
+            !std::filesystem::equivalent(stagedPdb.path,
+                                         std::filesystem::path(moduleInformation.LoadedPdbName)))
+        {
             throw std::runtime_error("DbgHelp loaded a different PDB than the explicit input");
+        }
 
-        EnumerationContext context{result, loaded_base, {}};
-        const auto enumerated = SymEnumSymbols(session.handle(), loaded_base, "*", collect_symbol, &context);
-        if (context.error)
-            std::rethrow_exception(context.error);
-        if (!enumerated)
-            throw std::runtime_error(win_error("SymEnumSymbols"));
-        for (auto& [name, rvas] : result.rvas)
-            deduplicate(rvas);
-        return result;
+        EnumerationContext enumerationContext{pdbSymbols, loadedModuleBase, {}};
+        const auto enumerationSucceeded = SymEnumSymbols(symbolSession.Handle(), loadedModuleBase,
+                                                         "*", CollectSymbol, &enumerationContext);
+        if (enumerationContext.error)
+        {
+            std::rethrow_exception(enumerationContext.error);
+        }
+        if (!enumerationSucceeded)
+        {
+            throw std::runtime_error(WinError("SymEnumSymbols"));
+        }
+        for (auto& [symbolName, rvas] : pdbSymbols.rvas)
+        {
+            Deduplicate(rvas);
+        }
+        return pdbSymbols;
     }
 
-    std::string_view status_name(ComparisonStatus status)
+    std::string_view StatusName(ComparisonStatus comparisonStatus)
     {
-        switch (status)
+        switch (comparisonStatus)
         {
         case ComparisonStatus::Match:
             return "match";
@@ -437,129 +568,167 @@ namespace symfind::validation
         return "unknown";
     }
 
-    bool SymbolComparison::ambiguous() const
+    bool SymbolComparison::Ambiguous() const
     {
-        return pdb_rvas.size() > 1 || candidate_rvas.size() > 1;
+        return pdbRvas.size() > 1 || candidateRvas.size() > 1;
     }
 
-    SymbolComparison compare_symbol(std::string_view symbol,
-                                    std::vector<uint64_t> pdb_rvas,
-                                    std::vector<uint64_t> selected_rvas,
-                                    std::vector<uint64_t> candidate_rvas)
+    SymbolComparison CompareSymbol(std::string_view symbolName, std::vector<uint64_t> pdbRvas,
+                                   std::vector<uint64_t> selectedRvas,
+                                   std::vector<uint64_t> candidateRvas)
     {
-        deduplicate(pdb_rvas);
-        SymbolComparison result{std::string(symbol), std::move(pdb_rvas),
-                                std::move(selected_rvas), std::move(candidate_rvas)};
-        if (result.pdb_rvas.empty())
-            result.status = ComparisonStatus::MissingPdbSymbol;
-        else if (result.selected_rvas.empty())
-            result.status = ComparisonStatus::NoMatch;
-        else if (result.pdb_rvas.size() == 1 && result.selected_rvas.size() == 1 &&
-                 result.pdb_rvas.front() == result.selected_rvas.front())
-            result.status = ComparisonStatus::Match;
-        else
-            result.status = ComparisonStatus::Mismatch;
-        return result;
-    }
-
-    bool ComparisonReport::successful() const
-    {
-        return !symbols.empty() && std::all_of(symbols.begin(), symbols.end(), [](const auto& symbol)
-                                               { return symbol.status == ComparisonStatus::Match; });
-    }
-
-    ComparisonReport compare_ntdll_symbols(const std::filesystem::path& dll,
-                                           const std::filesystem::path& pdb)
-    {
-        std::array<std::string_view, ntdll_symbol_rules.size()> names{};
-        for (size_t i = 0; i < names.size(); ++i)
-            names[i] = ntdll_symbol_rules[i].symbol;
-        // The independent oracle is loaded first. It never adds names to AnalysisDb.
-        const auto oracle = read_pdb_symbols(dll, pdb, names);
-        const auto module = PeModule::from_file(dll.string());
-        if (!module)
-            throw std::runtime_error("symfind could not parse DLL: " + dll.string());
-        const auto database = AnalysisDb::analyze(*module);
-        ComparisonReport report{dll, pdb, oracle.identity, {}};
-        for (const auto& named_rule : ntdll_symbol_rules)
+        Deduplicate(pdbRvas);
+        SymbolComparison comparison{std::string(symbolName), std::move(pdbRvas),
+                                    std::move(selectedRvas), std::move(candidateRvas)};
+        if (comparison.pdbRvas.empty())
         {
-            auto rule = dsl::DslParser::parse(named_rule.script);
-            if (!rule)
-                throw std::runtime_error("Invalid built-in DSL rule for " + std::string(named_rule.symbol));
-            const auto selected = match_rvas(dsl::DslMatcher::match(database, *rule));
-            std::erase_if(rule->predicates, [](const auto& predicate)
-                          { return predicate && predicate->kind == dsl::PredKind::Take; });
-            const auto candidates = match_rvas(dsl::DslMatcher::match(database, *rule));
-            report.symbols.push_back(compare_symbol(named_rule.symbol,
-                                                    oracle.rvas.at(std::string(named_rule.symbol)), selected, candidates));
+            comparison.status = ComparisonStatus::MissingPdbSymbol;
         }
-        return report;
+        else if (comparison.selectedRvas.empty())
+        {
+            comparison.status = ComparisonStatus::NoMatch;
+        }
+        else if (comparison.pdbRvas.size() == 1 && comparison.selectedRvas.size() == 1 &&
+                 comparison.pdbRvas.front() == comparison.selectedRvas.front())
+        {
+            comparison.status = ComparisonStatus::Match;
+        }
+        else
+        {
+            comparison.status = ComparisonStatus::Mismatch;
+        }
+        return comparison;
     }
 
-    std::vector<std::pair<std::filesystem::path, std::filesystem::path>>
-        find_corpus_pairs(const std::filesystem::path& directory)
+    bool ComparisonReport::Successful() const
     {
-        if (!std::filesystem::is_directory(directory))
-            throw std::runtime_error("Corpus directory is missing: " + directory.string());
-        std::vector<std::pair<std::filesystem::path, std::filesystem::path>> pairs;
-        for (const auto& entry : std::filesystem::recursive_directory_iterator(directory))
+        return !symbols.empty() &&
+               std::all_of(symbols.begin(), symbols.end(),
+                           [](const auto& symbolComparison)
+                           {
+                               return symbolComparison.status == ComparisonStatus::Match;
+                           });
+    }
+
+    ComparisonReport CompareNtdllSymbols(const std::filesystem::path& dllPath,
+                                         const std::filesystem::path& pdbPath)
+    {
+        std::array<std::string_view, ntdllSymbolRules.size()> symbolNames{};
+        for (size_t symbolIndex = 0; symbolIndex < symbolNames.size(); ++symbolIndex)
         {
-            if (entry.is_regular_file() && _wcsicmp(entry.path().filename().c_str(), L"ntdll.dll") == 0)
+            symbolNames[symbolIndex] = ntdllSymbolRules[symbolIndex].symbol;
+        }
+        // The independent oracle is loaded first. It never adds names to AnalysisDb.
+        const auto pdbSymbols = ReadPdbSymbols(dllPath, pdbPath, symbolNames);
+        const auto peModule = PeModule::FromFile(dllPath.string());
+        if (!peModule)
+        {
+            throw std::runtime_error("symfind could not parse DLL: " + dllPath.string());
+        }
+        const auto analysisDatabase = AnalysisDb::Analyze(*peModule);
+        ComparisonReport comparisonReport{dllPath, pdbPath, pdbSymbols.identity, {}};
+        for (const auto& symbolRule : ntdllSymbolRules)
+        {
+            auto parsedRule = dsl::DslParser::Parse(symbolRule.script);
+            if (!parsedRule)
             {
-                auto pdb = entry.path().parent_path() / "ntdll.pdb";
+                throw std::runtime_error("Invalid built-in DSL rule for " +
+                                         std::string(symbolRule.symbol));
+            }
+            const auto selectedRvas =
+                MatchRvas(dsl::DslMatcher::Match(analysisDatabase, *parsedRule));
+            parsedRule->predicates.erase(
+                std::remove_if(parsedRule->predicates.begin(), parsedRule->predicates.end(),
+                               [](const auto& predicate)
+                               {
+                                   return predicate && predicate->kind == dsl::PredKind::Take;
+                               }),
+                parsedRule->predicates.end());
+            const auto candidateRvas =
+                MatchRvas(dsl::DslMatcher::Match(analysisDatabase, *parsedRule));
+            comparisonReport.symbols.push_back(
+                CompareSymbol(symbolRule.symbol, pdbSymbols.rvas.at(std::string(symbolRule.symbol)),
+                              selectedRvas, candidateRvas));
+        }
+        return comparisonReport;
+    }
+
+    std::vector<std::pair<std::filesystem::path, std::filesystem::path>> FindCorpusPairs(
+        const std::filesystem::path& corpusDirectory)
+    {
+        if (!std::filesystem::is_directory(corpusDirectory))
+        {
+            throw std::runtime_error("Corpus directory is missing: " + corpusDirectory.string());
+        }
+        std::vector<std::pair<std::filesystem::path, std::filesystem::path>> dllPdbPairs;
+        for (const auto& corpusEntry :
+             std::filesystem::recursive_directory_iterator(corpusDirectory))
+        {
+            if (corpusEntry.is_regular_file() &&
+                _wcsicmp(corpusEntry.path().filename().c_str(), L"ntdll.dll") == 0)
+            {
+                auto pdbPath = corpusEntry.path().parent_path() / "ntdll.pdb";
                 try
                 {
-                    pdb = entry.path().parent_path() / read_pe_identity(entry.path()).pdb_name;
+                    pdbPath = corpusEntry.path().parent_path() /
+                              ReadPeIdentity(corpusEntry.path()).pdbName;
                 }
                 catch (const std::runtime_error&)
                 {
                     // Keep corrupt fixtures in the set. Validation will report
                     // the PE error for this DLL while continuing other pairs.
                 }
-                pairs.emplace_back(entry.path(), std::move(pdb));
+                dllPdbPairs.emplace_back(corpusEntry.path(), std::move(pdbPath));
             }
         }
-        std::sort(pairs.begin(), pairs.end());
-        if (pairs.empty())
-            throw std::runtime_error("Configured corpus contains no ntdll.dll files");
-        return pairs;
-    }
-
-    std::string describe(const SymbolComparison& comparison)
-    {
-        return comparison.symbol + ": " + std::string(status_name(comparison.status)) +
-               ", PDB=" + format_rvas(comparison.pdb_rvas) +
-               ", selected=" + format_rvas(comparison.selected_rvas) +
-               ", candidates=" + format_rvas(comparison.candidate_rvas) +
-               (comparison.ambiguous() ? " (ambiguous)" : "");
-    }
-
-    void write_csv_header(std::ostream& output)
-    {
-        output << "dll,pdb,pdb_identity,symbol,expected_rva,actual_rva,candidate_rvas,candidate_count,ambiguous,status,error\n";
-    }
-
-    void write_csv_report(std::ostream& output, const ComparisonReport& report)
-    {
-        for (const auto& symbol : report.symbols)
+        std::sort(dllPdbPairs.begin(), dllPdbPairs.end());
+        if (dllPdbPairs.empty())
         {
-            output << csv_cell(report.dll.string()) << ',' << csv_cell(report.pdb.string()) << ','
-                   << csv_cell(report.identity.key()) << ',' << csv_cell(symbol.symbol) << ','
-                   << csv_cell(format_rvas(symbol.pdb_rvas)) << ','
-                   << csv_cell(format_rvas(symbol.selected_rvas)) << ','
-                   << csv_cell(format_rvas(symbol.candidate_rvas)) << ','
-                   << symbol.candidate_rvas.size() << ',' << (symbol.ambiguous() ? "true" : "false")
-                   << ',' << status_name(symbol.status) << ",\n";
+            throw std::runtime_error("Configured corpus contains no ntdll.dll files");
+        }
+        return dllPdbPairs;
+    }
+
+    std::string Describe(const SymbolComparison& symbolComparison)
+    {
+        return symbolComparison.symbol + ": " + std::string(StatusName(symbolComparison.status)) +
+               ", PDB=" + FormatRvas(symbolComparison.pdbRvas) +
+               ", selected=" + FormatRvas(symbolComparison.selectedRvas) +
+               ", candidates=" + FormatRvas(symbolComparison.candidateRvas) +
+               (symbolComparison.Ambiguous() ? " (ambiguous)" : "");
+    }
+
+    void WriteCsvHeader(std::ostream& csvOutput)
+    {
+        csvOutput << "dll,pdb,pdb_identity,symbol,expected_rva,actual_rva,candidate_rvas,candidate_"
+                     "count,ambiguous,status,error\n";
+    }
+
+    void WriteCsvReport(std::ostream& csvOutput, const ComparisonReport& comparisonReport)
+    {
+        for (const auto& symbolComparison : comparisonReport.symbols)
+        {
+            csvOutput << CsvCell(comparisonReport.dll.string()) << ','
+                      << CsvCell(comparisonReport.pdb.string()) << ','
+                      << CsvCell(comparisonReport.identity.Key()) << ','
+                      << CsvCell(symbolComparison.symbol) << ','
+                      << CsvCell(FormatRvas(symbolComparison.pdbRvas)) << ','
+                      << CsvCell(FormatRvas(symbolComparison.selectedRvas)) << ','
+                      << CsvCell(FormatRvas(symbolComparison.candidateRvas)) << ','
+                      << symbolComparison.candidateRvas.size() << ','
+                      << (symbolComparison.Ambiguous() ? "true" : "false") << ','
+                      << StatusName(symbolComparison.status) << ",\n";
         }
     }
 
-    void write_csv_error(std::ostream& output, const std::filesystem::path& dll,
-                         const std::filesystem::path& pdb, std::string_view error)
+    void WriteCsvError(std::ostream& csvOutput, const std::filesystem::path& dllPath,
+                       const std::filesystem::path& pdbPath, std::string_view errorMessage)
     {
-        for (const auto& rule : ntdll_symbol_rules)
+        for (const auto& symbolRule : ntdllSymbolRules)
         {
-            output << csv_cell(dll.string()) << ',' << csv_cell(pdb.string()) << ",,"
-                   << csv_cell(rule.symbol) << ",,,,0,false,validation-error," << csv_cell(error) << '\n';
+            csvOutput << CsvCell(dllPath.string()) << ',' << CsvCell(pdbPath.string()) << ",,"
+                      << CsvCell(symbolRule.symbol) << ",,,,0,false,validation-error,"
+                      << CsvCell(errorMessage) << '\n';
         }
     }
 } // namespace symfind::validation

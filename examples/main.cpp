@@ -34,11 +34,11 @@ int main(int argc, char* argv[])
         return 1;
     }
 
-    const char* pe_path = argv[1];
+    const char* pePath = argv[1];
 
     // Step 1: Load the PE module
-    SPDLOG_INFO("Loading PE module: {}", pe_path);
-    auto module = symfind::PeModule::from_file(pe_path);
+    SPDLOG_INFO("Loading PE module: {}", pePath);
+    auto module = symfind::PeModule::FromFile(pePath);
     if (!module)
     {
         SPDLOG_ERROR("Failed to load PE module");
@@ -47,10 +47,10 @@ int main(int argc, char* argv[])
 
     // Step 2: Run analysis
     SPDLOG_INFO("Running analysis...");
-    auto db = symfind::AnalysisDb::analyze(*module);
+    auto db = symfind::AnalysisDb::Analyze(*module);
 
     // Step 3: Define a DSL rule
-    const char* dsl_rule = R"(
+    const char* dslRule = R"(
         find function in "ntdll" where
             called_by "LdrLoadDll";
             not exported;
@@ -61,7 +61,7 @@ int main(int argc, char* argv[])
 
     // Step 4: Parse the rule
     SPDLOG_INFO("Parsing DSL rule...");
-    auto rule = symfind::dsl::DslParser::parse(dsl_rule);
+    auto rule = symfind::dsl::DslParser::Parse(dslRule);
     if (!rule)
     {
         SPDLOG_ERROR("Failed to parse DSL rule");
@@ -70,7 +70,7 @@ int main(int argc, char* argv[])
 
     // Step 5: Match
     SPDLOG_INFO("Searching for matching symbols...");
-    auto results = symfind::dsl::DslMatcher::match(db, *rule);
+    auto results = symfind::dsl::DslMatcher::Match(db, *rule);
 
     if (results.empty())
     {
@@ -80,8 +80,7 @@ int main(int argc, char* argv[])
     {
         for (const auto& result : results)
         {
-            std::printf("FOUND: %s at RVA 0x%llX\n",
-                        result.name.c_str(),
+            std::printf("FOUND: %s at RVA 0x%llX\n", result.name.c_str(),
                         static_cast<unsigned long long>(result.rva));
         }
     }

@@ -5,7 +5,7 @@
 #include <filesystem>
 #include <iosfwd>
 #include <map>
-#include <span>
+#include <nonstd/span.hpp>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -17,17 +17,17 @@ namespace symfind::validation
     {
             std::array<uint8_t, 16> guid{};
             uint32_t age = 0;
-            uint32_t image_size = 0;
+            uint32_t imageSize = 0;
             uint16_t machine = 0;
-            std::string pdb_name;
+            std::string pdbName;
 
-            [[nodiscard]] std::string key() const;
+            [[nodiscard]] std::string Key() const;
     };
 
     // Reads the DLL's RSDS record without consulting symfind's analysis or PDBs.
     // Malformed, unsupported or missing metadata throws std::runtime_error.
-    [[nodiscard]] PdbIdentity read_pe_identity(std::span<const uint8_t> bytes);
-    [[nodiscard]] PdbIdentity read_pe_identity(const std::filesystem::path& dll);
+    [[nodiscard]] PdbIdentity ReadPeIdentity(nonstd::span<const uint8_t> imageBytes);
+    [[nodiscard]] PdbIdentity ReadPeIdentity(const std::filesystem::path& dllPath);
 
     struct PdbSymbols
     {
@@ -38,10 +38,9 @@ namespace symfind::validation
     // Loads the DLL as symbol-handler data with exactly this local PDB, staged
     // alone under its RSDS basename. Requires SymPdb and matching GUID+DBI age,
     // and serializes all DbgHelp calls. No symbol-server fallback or execution.
-    [[nodiscard]] PdbSymbols read_pdb_symbols(
-        const std::filesystem::path& dll,
-        const std::filesystem::path& pdb,
-        std::span<const std::string_view> names);
+    [[nodiscard]] PdbSymbols ReadPdbSymbols(const std::filesystem::path& dllPath,
+                                            const std::filesystem::path& pdbPath,
+                                            nonstd::span<const std::string_view> symbolNames);
 
     enum class ComparisonStatus
     {
@@ -50,24 +49,23 @@ namespace symfind::validation
         MissingPdbSymbol,
         NoMatch
     };
-    [[nodiscard]] std::string_view status_name(ComparisonStatus status);
+    [[nodiscard]] std::string_view StatusName(ComparisonStatus comparisonStatus);
 
     struct SymbolComparison
     {
             std::string symbol;
-            std::vector<uint64_t> pdb_rvas;
-            std::vector<uint64_t> selected_rvas;
-            std::vector<uint64_t> candidate_rvas;
+            std::vector<uint64_t> pdbRvas;
+            std::vector<uint64_t> selectedRvas;
+            std::vector<uint64_t> candidateRvas;
             ComparisonStatus status = ComparisonStatus::MissingPdbSymbol;
 
-            [[nodiscard]] bool ambiguous() const;
+            [[nodiscard]] bool Ambiguous() const;
     };
 
-    [[nodiscard]] SymbolComparison compare_symbol(
-        std::string_view symbol,
-        std::vector<uint64_t> pdb_rvas,
-        std::vector<uint64_t> selected_rvas,
-        std::vector<uint64_t> candidate_rvas);
+    [[nodiscard]] SymbolComparison CompareSymbol(std::string_view symbolName,
+                                                 std::vector<uint64_t> pdbRvas,
+                                                 std::vector<uint64_t> selectedRvas,
+                                                 std::vector<uint64_t> candidateRvas);
 
     struct ComparisonReport
     {
@@ -76,17 +74,17 @@ namespace symfind::validation
             PdbIdentity identity;
             std::vector<SymbolComparison> symbols;
 
-            [[nodiscard]] bool successful() const;
+            [[nodiscard]] bool Successful() const;
     };
 
-    [[nodiscard]] ComparisonReport compare_ntdll_symbols(
-        const std::filesystem::path& dll, const std::filesystem::path& pdb);
+    [[nodiscard]] ComparisonReport CompareNtdllSymbols(const std::filesystem::path& dllPath,
+                                                       const std::filesystem::path& pdbPath);
     [[nodiscard]] std::vector<std::pair<std::filesystem::path, std::filesystem::path>>
-        find_corpus_pairs(const std::filesystem::path& directory);
+        FindCorpusPairs(const std::filesystem::path& corpusDirectory);
 
-    [[nodiscard]] std::string describe(const SymbolComparison& comparison);
-    void write_csv_header(std::ostream& output);
-    void write_csv_report(std::ostream& output, const ComparisonReport& report);
-    void write_csv_error(std::ostream& output, const std::filesystem::path& dll,
-                         const std::filesystem::path& pdb, std::string_view error);
+    [[nodiscard]] std::string Describe(const SymbolComparison& symbolComparison);
+    void WriteCsvHeader(std::ostream& csvOutput);
+    void WriteCsvReport(std::ostream& csvOutput, const ComparisonReport& comparisonReport);
+    void WriteCsvError(std::ostream& csvOutput, const std::filesystem::path& dllPath,
+                       const std::filesystem::path& pdbPath, std::string_view errorMessage);
 } // namespace symfind::validation

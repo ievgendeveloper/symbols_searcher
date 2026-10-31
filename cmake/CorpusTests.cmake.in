@@ -1,4 +1,5 @@
-if("PdbComparison.ConfiguredNtdllSymbolsMatchExactPdbRvas" IN_LIST symfind_tests_TESTS)
+list(FIND symfindTests "PdbComparison.ConfiguredNtdllSymbolsMatchExactPdbRvas" pdbComparisonTestIndex)
+if(NOT pdbComparisonTestIndex EQUAL -1)
     set_tests_properties(PdbComparison.ConfiguredNtdllSymbolsMatchExactPdbRvas PROPERTIES
         FIXTURES_REQUIRED ntdll_corpus
         ENVIRONMENT "SYMFIND_DEFAULT_NTDLL_CORPUS=@SYMFIND_NTDLL_CORPUS_DIR@")

@@ -12,7 +12,7 @@ namespace symfind::validation
     };
 
     // Shared rules for matcher tests and independent PDB validation.
-    inline constexpr std::array ntdll_symbol_rules = {
+    inline constexpr std::array ntdllSymbolRules = {
         NamedRule{"LdrpInitialize", R"(
             find function in "ntdll" where
                 called_by "LdrInitializeThunk";
@@ -34,11 +34,15 @@ namespace symfind::validation
         )"},
     };
 
-    [[nodiscard]] constexpr std::string_view ntdll_rule_for(std::string_view symbol)
+    [[nodiscard]] constexpr std::string_view NtdllRuleFor(std::string_view symbolName)
     {
-        for (const auto& rule : ntdll_symbol_rules)
-            if (rule.symbol == symbol)
-                return rule.script;
+        for (const auto& symbolRule : ntdllSymbolRules)
+        {
+            if (symbolRule.symbol == symbolName)
+            {
+                return symbolRule.script;
+            }
+        }
         return {};
     }
 } // namespace symfind::validation
