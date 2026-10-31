@@ -69,8 +69,8 @@ namespace symfind::dsl
     struct Token
     {
             TokenType type;
-            std::string_view str_value;
-            int64_t int_value;
+            std::string_view strValue;
+            int64_t intValue;
             int line;
             int column;
     };
@@ -81,28 +81,28 @@ namespace symfind::dsl
     class Lexer
     {
         public:
-            explicit Lexer(std::string_view source);
+            explicit Lexer(std::string_view ruleSource);
 
             /// Get the next token.
-            [[nodiscard]] Token next();
+            [[nodiscard]] Token Next();
 
             /// Tokenize the entire input (until EOF or first Error).
-            [[nodiscard]] std::vector<Token> tokenize_all();
+            [[nodiscard]] std::vector<Token> TokenizeAll();
 
         private:
-            std::string storage_;     ///< owned NUL-terminated copy of input
-            std::string_view source_; ///< view into storage_
-            size_t pos_ = 0;
-            int line_ = 1;
-            int column_ = 1;
+            std::string m_sourceStorage;   ///< owned NUL-terminated copy of input
+            std::string_view m_sourceView; ///< view into m_sourceStorage
+            size_t m_position = 0;
+            int m_line = 1;
+            int m_column = 1;
 
             // Internal helpers (kept for ABI compatibility — unused by re2c-generated next()).
-            char peek() const;
-            char advance();
-            void skip_whitespace_and_comments();
-            Token read_string();
-            Token read_number();
-            Token read_keyword_or_error();
+            char Peek() const;
+            char Advance();
+            void SkipWhitespaceAndComments();
+            Token ReadString();
+            Token ReadNumber();
+            Token ReadKeywordOrError();
     };
 
 } // namespace symfind::dsl

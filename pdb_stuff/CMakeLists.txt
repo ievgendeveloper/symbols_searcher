@@ -1,7 +1,7 @@
 # Tool dependencies are isolated from symfind's production library.
 include(FetchContent)
 
-function(symfind_fetch_pdb_dependencies)
+function(SymfindFetchPdbDependencies)
     set(BUILD_SHARED_LIBS OFF)
     # zlib 1.3.1's upstream minimum predates CMake 4 compatibility defaults.
     set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
@@ -30,25 +30,17 @@ function(symfind_fetch_pdb_dependencies)
     set(CURL_BROTLI OFF CACHE STRING "" FORCE)
     set(CURL_ZSTD OFF CACHE STRING "" FORCE)
     set(BUILD_CURL_EXE OFF CACHE BOOL "" FORCE)
+    if(MSVC)
+        set(CURL_STATIC_CRT ON CACHE BOOL "" FORCE)
+    endif()
     FetchContent_Declare(cpr
         GIT_REPOSITORY https://github.com/libcpr/cpr.git
         GIT_TAG 1.11.2
         GIT_SHALLOW TRUE)
     FetchContent_MakeAvailable(nlohmann_json zlib cpr)
 
-    # CPR defaults static MSVC libraries to /MT; symfind and GoogleTest use /MD.
-    foreach(dependency cpr libcurl libcurl_static CURL::libcurl)
-        if(TARGET ${dependency})
-            get_target_property(actual_target ${dependency} ALIASED_TARGET)
-            if(NOT actual_target)
-                set(actual_target ${dependency})
-            endif()
-            set_property(TARGET ${actual_target} PROPERTY MSVC_RUNTIME_LIBRARY
-                "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
-        endif()
-    endforeach()
 endfunction()
-symfind_fetch_pdb_dependencies()
+SymfindFetchPdbDependencies()
 
 add_library(symfind_pdb_fixtures STATIC
     src/corpus.cpp
@@ -57,7 +49,7 @@ add_library(symfind_pdb_fixtures STATIC
     src/diagnostics.cpp)
 target_include_directories(symfind_pdb_fixtures PUBLIC include)
 target_link_libraries(symfind_pdb_fixtures
-    PUBLIC nlohmann_json::nlohmann_json
+    PUBLIC nlohmann_json::nlohmann_json symfind_compat
     PRIVATE cpr::cpr zlibstatic bcrypt)
 target_compile_definitions(symfind_pdb_fixtures PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
 
@@ -81,9 +73,9 @@ if(SYMFIND_BUILD_PDB_TOOLS)
     target_link_libraries(symfind_pdb_util PRIVATE symfind_pdb_fixtures)
     add_executable(symfind_compare_symbols ../tools/compare_symbols.cpp)
     target_link_libraries(symfind_compare_symbols
-        PRIVATE symfind_pdb_validation spdlog::spdlog_header_only)
-    foreach(tool symfind_fetch_ntdll symfind_pdb_util symfind_compare_symbols)
-        set_target_properties(${tool} PROPERTIES
+        PRIVATE symfind_pdb_validation spdlog::spdlog)
+    foreach(toolTarget symfind_fetch_ntdll symfind_pdb_util symfind_compare_symbols)
+        set_target_properties(${toolTarget} PROPERTIES
             RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin/$<CONFIG>")
     endforeach()
 endif()
