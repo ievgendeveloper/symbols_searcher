@@ -4,17 +4,15 @@
 #include <algorithm>
 #include <cstring>
 
-using namespace symfind;
-
 namespace
 {
-    constexpr const char* NTDLL_PATH = R"(C:\Windows\System32\ntdll.dll)";
+    constexpr const char* ntdllPath = R"(C:\Windows\System32\ntdll.dll)";
 
     /// Helper: load ntdll once per test. If unavailable on this machine
     /// (e.g. running on Linux CI), the tests using this helper are skipped.
-    std::optional<PeModule> load_ntdll()
+    std::optional<symfind::PeModule> LoadNtdll()
     {
-        return PeModule::from_file(NTDLL_PATH);
+        return symfind::PeModule::FromFile(ntdllPath);
     }
 
 } // namespace
@@ -23,152 +21,153 @@ namespace
 
 TEST(PeModuleMapping, LoadsRealModule)
 {
-    auto module = load_ntdll();
-    ASSERT_TRUE(module.has_value());
-    EXPECT_FALSE(module->name().empty());
-    EXPECT_GT(module->image_base(), 0u);
-    EXPECT_GT(module->sections().size(), 0u);
-    EXPECT_GT(module->exports().size(), 0u);
+    auto ntdllModule = LoadNtdll();
+    ASSERT_TRUE(ntdllModule.has_value());
+    EXPECT_FALSE(ntdllModule->Name().empty());
+    EXPECT_EQ(ntdllModule->Name().find_first_of("/\\"), std::string::npos);
+    EXPECT_GT(ntdllModule->ImageBase(), 0u);
+    EXPECT_GT(ntdllModule->Sections().size(), 0u);
+    EXPECT_GT(ntdllModule->Exports().size(), 0u);
 }
 
 TEST(PeModuleMapping, RawImageNonEmpty)
 {
-    auto module = load_ntdll();
-    ASSERT_TRUE(module.has_value());
+    auto ntdllModule = LoadNtdll();
+    ASSERT_TRUE(ntdllModule.has_value());
 
-    auto image = module->raw_image();
-    EXPECT_GT(image.size(), 0u);
+    auto imageBytes = ntdllModule->RawImage();
+    EXPECT_GT(imageBytes.size(), 0u);
     // PE images start with "MZ" magic at RVA 0
-    ASSERT_GE(image.size(), 2u);
-    EXPECT_EQ(image[0], 'M');
-    EXPECT_EQ(image[1], 'Z');
+    ASSERT_GE(imageBytes.size(), 2u);
+    EXPECT_EQ(imageBytes[0], 'M');
+    EXPECT_EQ(imageBytes[1], 'Z');
 }
 
-// ─── read_at correctness ────────────────────────────
+// ─── ReadAt correctness ────────────────────────────
 
 TEST(PeModuleMapping, ReadAtZeroReturnsMzHeader)
 {
-    auto module = load_ntdll();
-    ASSERT_TRUE(module.has_value());
+    auto ntdllModule = LoadNtdll();
+    ASSERT_TRUE(ntdllModule.has_value());
 
     // First 64 bytes — the IMAGE_DOS_HEADER. First two bytes are "MZ".
-    auto header = module->read_at(0, 64);
-    ASSERT_EQ(header.size(), 64u);
-    EXPECT_EQ(header[0], 'M');
-    EXPECT_EQ(header[1], 'Z');
+    auto dosHeaderBytes = ntdllModule->ReadAt(0, 64);
+    ASSERT_EQ(dosHeaderBytes.size(), 64u);
+    EXPECT_EQ(dosHeaderBytes[0], 'M');
+    EXPECT_EQ(dosHeaderBytes[1], 'Z');
 }
 
 TEST(PeModuleMapping, ReadAtBeyondImageReturnsEmpty)
 {
-    auto module = load_ntdll();
-    ASSERT_TRUE(module.has_value());
+    auto ntdllModule = LoadNtdll();
+    ASSERT_TRUE(ntdllModule.has_value());
 
-    auto image = module->raw_image();
+    auto imageBytes = ntdllModule->RawImage();
     // Try to read past the end — should return empty span
-    auto past_end = module->read_at(image.size() + 0x1000, 16);
-    EXPECT_EQ(past_end.size(), 0u);
+    auto outOfBoundsBytes = ntdllModule->ReadAt(imageBytes.size() + 0x1000, 16);
+    EXPECT_EQ(outOfBoundsBytes.size(), 0u);
 }
 
 TEST(PeModuleMapping, ReadAtSectionStartContainsExpectedBytes)
 {
-    auto module = load_ntdll();
-    ASSERT_TRUE(module.has_value());
+    auto ntdllModule = LoadNtdll();
+    ASSERT_TRUE(ntdllModule.has_value());
 
     // Find the .text section
-    const Section* text_section = nullptr;
-    for (const auto& sec : module->sections())
+    const symfind::Section* textSection = nullptr;
+    for (const auto& section : ntdllModule->Sections())
     {
-        if (sec.name == ".text")
+        if (section.name == ".text")
         {
-            text_section = &sec;
+            textSection = &section;
             break;
         }
     }
-    ASSERT_NE(text_section, nullptr) << ".text section must exist in ntdll";
-    EXPECT_TRUE(text_section->executable);
+    ASSERT_NE(textSection, nullptr) << ".text section must exist in ntdll";
+    EXPECT_TRUE(textSection->executable);
 
-    // Reading the first 16 bytes of .text via read_at should match
+    // Reading the first 16 bytes of .text via ReadAt should match
     // the first 16 bytes from the raw image at the same offset.
-    auto via_read_at = module->read_at(text_section->virtual_address, 16);
-    auto raw_image = module->raw_image();
+    auto sectionBytes = ntdllModule->ReadAt(textSection->virtualAddress, 16);
+    auto rawImageBytes = ntdllModule->RawImage();
 
-    ASSERT_EQ(via_read_at.size(), 16u);
-    ASSERT_GE(raw_image.size(), text_section->virtual_address + 16);
+    ASSERT_EQ(sectionBytes.size(), 16u);
+    ASSERT_GE(rawImageBytes.size(), textSection->virtualAddress + 16);
 
-    EXPECT_EQ(0, std::memcmp(via_read_at.data(),
-                             raw_image.data() + text_section->virtual_address,
-                             16));
+    EXPECT_EQ(0, std::memcmp(sectionBytes.data(),
+                             rawImageBytes.data() + textSection->virtualAddress, 16));
 }
 
 // ─── Export lookup consistency ──────────────────────
 
 TEST(PeModuleMapping, KnownExportRvaIsExecutable)
 {
-    auto module = load_ntdll();
-    ASSERT_TRUE(module.has_value());
+    auto ntdllModule = LoadNtdll();
+    ASSERT_TRUE(ntdllModule.has_value());
 
     // RtlGetCurrentServiceSessionId is a well-known ntdll export
-    auto rva = module->export_rva("RtlGetCurrentServiceSessionId");
-    ASSERT_TRUE(rva.has_value()) << "Expected ntdll to export this function";
+    auto exportedFunctionRva = ntdllModule->ExportRva("RtlGetCurrentServiceSessionId");
+    ASSERT_TRUE(exportedFunctionRva.has_value()) << "Expected ntdll to export this function";
 
     // The RVA should fall inside an executable section
-    bool in_exec_section = false;
-    for (const auto& sec : module->sections())
+    bool exportIsExecutable = false;
+    for (const auto& section : ntdllModule->Sections())
     {
-        if (sec.executable &&
-            *rva >= sec.virtual_address &&
-            *rva < sec.virtual_address + sec.virtual_size)
+        if (section.executable && *exportedFunctionRva >= section.virtualAddress &&
+            *exportedFunctionRva < section.virtualAddress + section.virtualSize)
         {
-            in_exec_section = true;
+            exportIsExecutable = true;
             break;
         }
     }
-    EXPECT_TRUE(in_exec_section)
-        << "Export RVA 0x" << std::hex << *rva
-        << " is not in any executable section";
+    EXPECT_TRUE(exportIsExecutable) << "Export RVA 0x" << std::hex << *exportedFunctionRva
+                                    << " is not in any executable section";
 }
 
 TEST(PeModuleMapping, ReadAtExportEntryPointReturnsCode)
 {
-    auto module = load_ntdll();
-    ASSERT_TRUE(module.has_value());
+    auto ntdllModule = LoadNtdll();
+    ASSERT_TRUE(ntdllModule.has_value());
 
-    auto rva = module->export_rva("RtlGetCurrentServiceSessionId");
-    ASSERT_TRUE(rva.has_value());
+    auto exportedFunctionRva = ntdllModule->ExportRva("RtlGetCurrentServiceSessionId");
+    ASSERT_TRUE(exportedFunctionRva.has_value());
 
     // Read 16 bytes from the function entry point — should be valid
     // code bytes (not a hole of zeros, not out of bounds).
-    auto code = module->read_at(*rva, 16);
-    ASSERT_EQ(code.size(), 16u);
+    auto entryPointBytes = ntdllModule->ReadAt(*exportedFunctionRva, 16);
+    ASSERT_EQ(entryPointBytes.size(), 16u);
 
     // We can't assert on specific bytes because the prologue varies
     // between Windows versions, but we can sanity-check that it isn't
     // all zeros (which would indicate we read into a hole).
-    bool all_zero = std::all_of(code.begin(), code.end(),
-                                [](uint8_t b)
-                                { return b == 0; });
-    EXPECT_FALSE(all_zero) << "Function entry point should not be all zeros";
+    bool entryPointIsAllZero = std::all_of(entryPointBytes.begin(), entryPointBytes.end(),
+                                           [](uint8_t byte)
+                                           {
+                                               return byte == 0;
+                                           });
+    EXPECT_FALSE(entryPointIsAllZero) << "Function entry point should not be all zeros";
 }
 
-// ─── Cross-check: every section is reachable via read_at ─
+// ─── Cross-check: every section is reachable via ReadAt ─
 
 TEST(PeModuleMapping, EverySectionIsReadable)
 {
-    auto module = load_ntdll();
-    ASSERT_TRUE(module.has_value());
+    auto ntdllModule = LoadNtdll();
+    ASSERT_TRUE(ntdllModule.has_value());
 
-    for (const auto& sec : module->sections())
+    for (const auto& section : ntdllModule->Sections())
     {
-        if (sec.virtual_size == 0)
+        if (section.virtualSize == 0)
+        {
             continue;
+        }
 
         // Read first few bytes of each section
-        const size_t to_read = std::min<size_t>(sec.virtual_size, 16);
-        auto bytes = module->read_at(sec.virtual_address, to_read);
+        const size_t bytesToRead = std::min<size_t>(section.virtualSize, 16);
+        auto sectionBytes = ntdllModule->ReadAt(section.virtualAddress, bytesToRead);
 
-        EXPECT_EQ(bytes.size(), to_read)
-            << "Section '" << sec.name
-            << "' at RVA 0x" << std::hex << sec.virtual_address
+        EXPECT_EQ(sectionBytes.size(), bytesToRead)
+            << "Section '" << section.name << "' at RVA 0x" << std::hex << section.virtualAddress
             << " could not be read";
     }
 }

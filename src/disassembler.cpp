@@ -10,112 +10,115 @@ namespace symfind
             ZydisDecoder decoder;
     };
 
-    Disassembler::Disassembler() : impl_(std::make_unique<Implementation>())
+    Disassembler::Disassembler() : m_impl(std::make_unique<Implementation>())
     {
-        ZydisDecoderInit(&impl_->decoder, ZYDIS_MACHINE_MODE_LONG_64, ZYDIS_STACK_WIDTH_64);
+        ZydisDecoderInit(&m_impl->decoder, ZYDIS_MACHINE_MODE_LONG_64, ZYDIS_STACK_WIDTH_64);
     }
 
     Disassembler::~Disassembler() = default;
 
-    std::vector<Instruction> Disassembler::disassemble(std::span<const uint8_t> code,
-                                                       uint64_t base_address) const
+    std::vector<Instruction> Disassembler::Disassemble(nonstd::span<const uint8_t> codeBytes,
+                                                       uint64_t baseAddress) const
     {
-        std::vector<Instruction> result;
+        std::vector<Instruction> decodedInstructions;
 
-        disassemble_cb(code, base_address, [&](const Instruction& instr)
-                       {
-            result.push_back(instr);
-            return true; });
+        DisassembleCb(codeBytes, baseAddress,
+                      [&](const Instruction& instruction)
+                      {
+                          decodedInstructions.push_back(instruction);
+                          return true;
+                      });
 
-        return result;
+        return decodedInstructions;
     }
 
-    void Disassembler::disassemble_cb(std::span<const uint8_t> code,
-                                      uint64_t base_address,
-                                      const std::function<bool(const Instruction&)>& callback) const
+    void Disassembler::DisassembleCb(
+        nonstd::span<const uint8_t> codeBytes, uint64_t baseAddress,
+        const std::function<bool(const Instruction&)>& instructionCallback) const
     {
-        ZydisDecodedInstruction zydisInstruction{};
-        ZydisDecodedOperand operands[ZYDIS_MAX_OPERAND_COUNT]{};
-        size_t offset = 0;
+        ZydisDecodedInstruction decodedInstruction{};
+        ZydisDecodedOperand decodedOperands[ZYDIS_MAX_OPERAND_COUNT]{};
+        size_t instructionOffset = 0;
 
-        while (offset < code.size())
+        while (instructionOffset < codeBytes.size())
         {
-            const auto status = ZydisDecoderDecodeFull(
-                &impl_->decoder,
-                code.data() + offset,
-                code.size() - offset,
-                &zydisInstruction,
-                operands);
+            const auto decodeStatus = ZydisDecoderDecodeFull(
+                &m_impl->decoder, codeBytes.data() + instructionOffset,
+                codeBytes.size() - instructionOffset, &decodedInstruction, decodedOperands);
 
-            if (!ZYAN_SUCCESS(status))
+            if (!ZYAN_SUCCESS(decodeStatus))
             {
                 break;
             }
 
             Instruction instruction;
-            instruction.address = base_address + offset;
-            instruction.length = zydisInstruction.length;
+            instruction.address = baseAddress + instructionOffset;
+            instruction.length = decodedInstruction.length;
 
             // Classify instruction
-            const auto cat = zydisInstruction.meta.category;
-            instruction.is_call = (cat == ZYDIS_CATEGORY_CALL);
-            instruction.is_ret = (cat == ZYDIS_CATEGORY_RET);
-            instruction.is_jump = (cat == ZYDIS_CATEGORY_COND_BR || cat == ZYDIS_CATEGORY_UNCOND_BR);
-            instruction.is_conditional = (cat == ZYDIS_CATEGORY_COND_BR);
-            instruction.is_lea = (zydisInstruction.mnemonic == ZYDIS_MNEMONIC_LEA);
+            const auto instructionCategory = decodedInstruction.meta.category;
+            instruction.isCall = (instructionCategory == ZYDIS_CATEGORY_CALL);
+            instruction.isRet = (instructionCategory == ZYDIS_CATEGORY_RET);
+            instruction.isJump = (instructionCategory == ZYDIS_CATEGORY_COND_BR ||
+                                  instructionCategory == ZYDIS_CATEGORY_UNCOND_BR);
+            instruction.isConditional = (instructionCategory == ZYDIS_CATEGORY_COND_BR);
+            instruction.isLea = (decodedInstruction.mnemonic == ZYDIS_MNEMONIC_LEA);
 
             // Resolve branch target for direct call/jmp
-            if ((instruction.is_call || instruction.is_jump) &&
-                operands[0].type == ZYDIS_OPERAND_TYPE_IMMEDIATE)
+            if ((instruction.isCall || instruction.isJump) &&
+                decodedOperands[0].type == ZYDIS_OPERAND_TYPE_IMMEDIATE)
             {
-                ZyanU64 target = 0;
-                ZydisCalcAbsoluteAddress(&zydisInstruction, &operands[0], instruction.address, &target);
-                instruction.branch_target = target;
+                ZyanU64 branchTargetAddress = 0;
+                ZydisCalcAbsoluteAddress(&decodedInstruction, &decodedOperands[0],
+                                         instruction.address, &branchTargetAddress);
+                instruction.branchTarget = branchTargetAddress;
             }
 
             // Detect `sub rsp, imm`
-            if (zydisInstruction.mnemonic == ZYDIS_MNEMONIC_SUB &&
-                zydisInstruction.operand_count >= 2 &&
-                operands[0].type == ZYDIS_OPERAND_TYPE_REGISTER &&
-                operands[0].reg.value == ZYDIS_REGISTER_RSP &&
-                operands[1].type == ZYDIS_OPERAND_TYPE_IMMEDIATE)
+            if (decodedInstruction.mnemonic == ZYDIS_MNEMONIC_SUB &&
+                decodedInstruction.operand_count >= 2 &&
+                decodedOperands[0].type == ZYDIS_OPERAND_TYPE_REGISTER &&
+                decodedOperands[0].reg.value == ZYDIS_REGISTER_RSP &&
+                decodedOperands[1].type == ZYDIS_OPERAND_TYPE_IMMEDIATE)
             {
-                instruction.is_sub_rsp_imm = true;
-                instruction.imm_value = operands[1].imm.value.s; // signed immediate
+                instruction.isSubRspImm = true;
+                instruction.immValue = decodedOperands[1].imm.value.s; // signed immediate
             }
 
             // Resolve RIP-relative memory operands
-            for (size_t i = 0; i < zydisInstruction.operand_count; ++i)
+            for (size_t operandIndex = 0; operandIndex < decodedInstruction.operand_count;
+                 ++operandIndex)
             {
-                if (operands[i].type == ZYDIS_OPERAND_TYPE_MEMORY &&
-                    operands[i].mem.base == ZYDIS_REGISTER_RIP)
+                if (decodedOperands[operandIndex].type == ZYDIS_OPERAND_TYPE_MEMORY &&
+                    decodedOperands[operandIndex].mem.base == ZYDIS_REGISTER_RIP)
                 {
-                    ZyanU64 absoluteAddress = 0;
-                    ZydisCalcAbsoluteAddress(&zydisInstruction, &operands[i], instruction.address, &absoluteAddress);
-                    instruction.mem_absolute = absoluteAddress;
+                    ZyanU64 memoryOperandAddress = 0;
+                    ZydisCalcAbsoluteAddress(&decodedInstruction, &decodedOperands[operandIndex],
+                                             instruction.address, &memoryOperandAddress);
+                    instruction.memAbsolute = memoryOperandAddress;
 
-                    if (instruction.is_lea)
+                    if (instruction.isLea)
                     {
                         // lea = address reference, not read/write
                     }
-                    else if (operands[i].actions & ZYDIS_OPERAND_ACTION_READ)
+                    else if (decodedOperands[operandIndex].actions & ZYDIS_OPERAND_ACTION_READ)
                     {
-                        instruction.is_mem_read = true;
+                        instruction.isMemRead = true;
                     }
-                    else if (operands[i].actions & ZYDIS_OPERAND_ACTION_WRITE)
+                    else if (decodedOperands[operandIndex].actions & ZYDIS_OPERAND_ACTION_WRITE)
                     {
-                        instruction.is_mem_write = true;
+                        instruction.isMemWrite = true;
                     }
                     break;
                 }
             }
 
-            if (!callback(instruction))
+            if (!instructionCallback(instruction))
             {
                 break;
             }
 
-            offset += zydisInstruction.length;
+            instructionOffset += decodedInstruction.length;
         }
     }
 

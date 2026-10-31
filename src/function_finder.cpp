@@ -6,53 +6,55 @@
 
 namespace symfind
 {
-    std::vector<Function> FunctionFinder::find(const PeModule& module,
+    std::vector<Function> FunctionFinder::Find(const PeModule& module,
                                                const Disassembler& disassembler)
     {
         std::vector<Function> functions;
 
-        from_exports(module, functions);
-        from_exception_directory(module, functions);
-        from_call_targets(module, disassembler, functions);
-        deduplicate(functions);
+        FromExports(module, functions);
+        FromExceptionDirectory(module, functions);
+        FromCallTargets(module, disassembler, functions);
+        Deduplicate(functions);
 
-        SPDLOG_INFO("Found {} functions in '{}'", functions.size(), module.name());
+        SPDLOG_INFO("Found {} functions in '{}'", functions.size(), module.Name());
         return functions;
     }
 
-    void FunctionFinder::from_exports(const PeModule& module,
-                                      std::vector<Function>& out)
+    void FunctionFinder::FromExports(const PeModule& module,
+                                     std::vector<Function>& discoveredFunctions)
     {
-        for (const auto& exp : module.exports())
+        for (const auto& exportEntry : module.Exports())
         {
-            Function f;
-            f.rva = module.canonical_function_rva(exp.rva).value_or(exp.rva);
-            f.exported = true;
-            f.export_name = exp.name;
-            out.push_back(f);
+            Function exportedFunction;
+            exportedFunction.rva =
+                module.CanonicalFunctionRva(exportEntry.rva).value_or(exportEntry.rva);
+            exportedFunction.exported = true;
+            exportedFunction.exportName = exportEntry.name;
+            discoveredFunctions.push_back(exportedFunction);
         }
     }
 
-    void FunctionFinder::from_exception_directory(const PeModule& module,
-                                                  std::vector<Function>& out)
+    void FunctionFinder::FromExceptionDirectory(const PeModule& module,
+                                                std::vector<Function>& discoveredFunctions)
     {
-        size_t numberOfFoundedFunctions = 0;
-        const auto& limits = module.exception_functions();
-        for (const auto& element : limits)
+        size_t discoveredFunctionCount = 0;
+        const auto& exceptionFunctions = module.ExceptionFunctions();
+        for (const auto& functionBounds : exceptionFunctions)
         {
-            out.emplace_back(element.rva, element.size, false, std::string(), element.ranges);
-            ++numberOfFoundedFunctions;
+            discoveredFunctions.push_back(Function{functionBounds.rva, functionBounds.size, false,
+                                                   std::string(), functionBounds.ranges});
+            ++discoveredFunctionCount;
         }
 
-        SPDLOG_INFO("The number of functions founded by parsing exception directory: {}", numberOfFoundedFunctions);
+        SPDLOG_INFO("The number of functions founded by parsing exception directory: {}",
+                    discoveredFunctionCount);
     }
 
-    void FunctionFinder::from_call_targets(const PeModule& module,
-                                           const Disassembler& disassembler,
-                                           std::vector<Function>& out)
+    void FunctionFinder::FromCallTargets(const PeModule& module, const Disassembler& disassembler,
+                                         std::vector<Function>& discoveredFunctions)
     {
-        size_t numberOfFoundedFunctions = 0;
-        const auto& sections = module.sections();
+        size_t discoveredFunctionCount = 0;
+        const auto& sections = module.Sections();
         for (const auto& section : sections)
         {
             if (!section.executable)
@@ -60,123 +62,131 @@ namespace symfind
                 continue;
             }
 
-            auto sectionData = module.read_at(section.virtual_address, section.virtual_size);
-            const auto instructions =
-                disassembler.disassemble(sectionData, section.virtual_address);
-            for (const auto& instruction : instructions)
+            auto sectionBytes = module.ReadAt(section.virtualAddress, section.virtualSize);
+            const auto decodedInstructions =
+                disassembler.Disassemble(sectionBytes, section.virtualAddress);
+            for (const auto& instruction : decodedInstructions)
             {
-                if (!instruction.is_call || !instruction.branch_target)
+                if (!instruction.isCall || !instruction.branchTarget)
                 {
                     continue;
                 }
 
-                const auto target = module.canonical_function_rva(instruction.branch_target)
-                                        .value_or(instruction.branch_target);
-                out.emplace_back(target, 0, false, std::string());
-                ++numberOfFoundedFunctions;
+                const auto calleeRva = module.CanonicalFunctionRva(instruction.branchTarget)
+                                           .value_or(instruction.branchTarget);
+                discoveredFunctions.push_back(Function{calleeRva, 0, false, std::string(), {}});
+                ++discoveredFunctionCount;
             }
         }
 
-        SPDLOG_INFO("The number of functions founded by disassembling: {}", numberOfFoundedFunctions);
+        SPDLOG_INFO("The number of functions founded by disassembling: {}",
+                    discoveredFunctionCount);
     }
 
-    void FunctionFinder::deduplicate(std::vector<Function>& funcs)
+    void FunctionFinder::Deduplicate(std::vector<Function>& functions)
     {
         // skip too small libraries where nothing to regroup
-        if (funcs.size() < 2)
+        if (functions.size() < 2)
         {
             return;
         }
 
-        std::sort(funcs.begin(), funcs.end(),
-                  [](const Function& a, const Function& b)
-                  { return a.rva < b.rva; });
+        std::sort(functions.begin(), functions.end(),
+                  [](const Function& leftFunction, const Function& rightFunction)
+                  {
+                      return leftFunction.rva < rightFunction.rva;
+                  });
 
         // Single pass: merge runs of equal-RVA entries into the leftmost one,
         // taking the most informative field from each.
-        size_t write = 0;
-        for (size_t read = 1; read < funcs.size(); ++read)
+        size_t writeIndex = 0;
+        for (size_t readIndex = 1; readIndex < functions.size(); ++readIndex)
         {
-            if (funcs[read].rva == funcs[write].rva)
+            if (functions[readIndex].rva == functions[writeIndex].rva)
             {
                 // Same function - merge data into the write slot.
-                if (funcs[write].size == 0)
+                if (functions[writeIndex].size == 0)
                 {
-                    funcs[write].size = funcs[read].size;
+                    functions[writeIndex].size = functions[readIndex].size;
                 }
 
-                if (!funcs[write].exported && funcs[read].exported)
+                if (!functions[writeIndex].exported && functions[readIndex].exported)
                 {
-                    funcs[write].exported = true;
+                    functions[writeIndex].exported = true;
                 }
 
-                if (funcs[write].export_name.empty())
+                if (functions[writeIndex].exportName.empty())
                 {
-                    funcs[write].export_name = std::move(funcs[read].export_name);
+                    functions[writeIndex].exportName = std::move(functions[readIndex].exportName);
                 }
-                if (funcs[write].ranges.empty())
+                if (functions[writeIndex].ranges.empty())
                 {
-                    funcs[write].ranges = std::move(funcs[read].ranges);
+                    functions[writeIndex].ranges = std::move(functions[readIndex].ranges);
                 }
             }
             else
             {
-                ++write;
-                if (write != read)
+                ++writeIndex;
+                if (writeIndex != readIndex)
                 {
-                    funcs[write] = std::move(funcs[read]);
+                    functions[writeIndex] = std::move(functions[readIndex]);
                 }
             }
         }
 
-        funcs.resize(write + 1);
+        functions.resize(writeIndex + 1);
     }
 
-    std::vector<uint64_t> collect_callees(const PeModule& module, const Disassembler& disasm, uint64_t func_rva, uint64_t func_size)
+    std::vector<uint64_t> CollectCallees(const PeModule& module, const Disassembler& disassembler,
+                                         uint64_t functionRva, uint64_t functionSize)
     {
-        std::vector<uint64_t> result;
-        if (func_size == 0)
+        std::vector<uint64_t> calleeRvas;
+        if (functionSize == 0)
         {
-            return result;
+            return calleeRvas;
         }
 
-        const auto body = module.read_at(func_rva, func_size);
-        if (body.empty())
+        const auto functionBytes = module.ReadAt(functionRva, functionSize);
+        if (functionBytes.empty())
         {
-            return result;
+            return calleeRvas;
         }
 
-        disasm.disassemble_cb(body, func_rva, [&](const Instruction& instruction) -> bool
-                              {
-            if (instruction.is_call && instruction.branch_target != 0)
-            {
-                result.push_back(module.canonical_function_rva(instruction.branch_target)
-                                     .value_or(instruction.branch_target));
-            }
+        disassembler.DisassembleCb(functionBytes, functionRva,
+                                   [&](const Instruction& instruction) -> bool
+                                   {
+                                       if (instruction.isCall && instruction.branchTarget != 0)
+                                       {
+                                           calleeRvas.push_back(
+                                               module.CanonicalFunctionRva(instruction.branchTarget)
+                                                   .value_or(instruction.branchTarget));
+                                       }
 
-            return true; });
+                                       return true;
+                                   });
 
-        return result;
+        return calleeRvas;
     }
 
-    void link_callers(std::vector<AnalyzedFunction>& functions)
+    void LinkCallers(std::vector<AnalyzedFunction>& functions)
     {
         // Build a temporary RVA -> index map for O(1) lookup
-        std::unordered_map<uint64_t, size_t> rva_to_index;
-        rva_to_index.reserve(functions.size());
-        for (size_t i = 0; i < functions.size(); ++i)
+        std::unordered_map<uint64_t, size_t> functionIndexByRva;
+        functionIndexByRva.reserve(functions.size());
+        for (size_t functionIndex = 0; functionIndex < functions.size(); ++functionIndex)
         {
-            rva_to_index[functions[i].rva] = i;
+            functionIndexByRva[functions[functionIndex].rva] = functionIndex;
         }
 
-        for (size_t i = 0; i < functions.size(); ++i)
+        for (size_t functionIndex = 0; functionIndex < functions.size(); ++functionIndex)
         {
-            for (uint64_t callee_rva : functions[i].callees)
+            for (uint64_t calleeRva : functions[functionIndex].callees)
             {
-                auto it = rva_to_index.find(callee_rva);
-                if (it != rva_to_index.end())
+                auto calleeIndexEntry = functionIndexByRva.find(calleeRva);
+                if (calleeIndexEntry != functionIndexByRva.end())
                 {
-                    functions[it->second].callers.push_back(functions[i].rva);
+                    functions[calleeIndexEntry->second].callers.push_back(
+                        functions[functionIndex].rva);
                 }
             }
         }
@@ -206,14 +216,14 @@ namespace symfind
     // not for hiding free functions or types from other TUs.
     namespace
     {
-        bool is_data_section(const PeModule& module, uint64_t rva)
+        bool IsDataSection(const PeModule& module, uint64_t requestedRva)
         {
-            for (const auto& sec : module.sections())
+            for (const auto& section : module.Sections())
             {
-                if (rva >= sec.virtual_address &&
-                    rva < sec.virtual_address + sec.virtual_size)
+                if (requestedRva >= section.virtualAddress &&
+                    requestedRva < section.virtualAddress + section.virtualSize)
                 {
-                    return !sec.executable; // data section = non-executable
+                    return !section.executable; // data section = non-executable
                 }
             }
 
@@ -221,184 +231,193 @@ namespace symfind
         }
     } // namespace
 
-    std::vector<Xref> collect_data_refs(const PeModule& module, const Disassembler& disassembler,
-                                        uint64_t func_rva, uint64_t func_size)
+    std::vector<Xref> CollectDataRefs(const PeModule& module, const Disassembler& disassembler,
+                                      uint64_t functionRva, uint64_t functionSize)
     {
-        std::vector<Xref> references;
-        if (func_size == 0)
+        std::vector<Xref> dataReferences;
+        if (functionSize == 0)
         {
-            return references;
+            return dataReferences;
         }
 
-        const auto body = module.read_at(func_rva, func_size);
-        if (body.empty())
+        const auto functionBytes = module.ReadAt(functionRva, functionSize);
+        if (functionBytes.empty())
         {
-            return references;
+            return dataReferences;
         }
 
-        disassembler.disassemble_cb(body, func_rva, [&](const Instruction& instruction) -> bool
-                                    {
-            if (instruction.mem_absolute == 0)
-            {
-                return true; // not RIP-relative
-            }
+        disassembler.DisassembleCb(functionBytes, functionRva,
+                                   [&](const Instruction& instruction) -> bool
+                                   {
+                                       if (instruction.memAbsolute == 0)
+                                       {
+                                           return true; // not RIP-relative
+                                       }
 
-            if (!is_data_section(module, instruction.mem_absolute))
-            {
-                return true;
-            }
+                                       if (!IsDataSection(module, instruction.memAbsolute))
+                                       {
+                                           return true;
+                                       }
 
-            Xref crossReference{};
-            crossReference.from_rva = instruction.address;
-            crossReference.to_rva = instruction.mem_absolute;
-            crossReference.from_func = func_rva;
+                                       Xref dataReference{};
+                                       dataReference.fromRva = instruction.address;
+                                       dataReference.toRva = instruction.memAbsolute;
+                                       dataReference.fromFunc = functionRva;
 
-            if (instruction.is_lea)
-            {
-                crossReference.type = XrefType::DataRef;
-            }
-            else if (instruction.is_mem_read)
-            {
-                crossReference.type = XrefType::DataRead;
-            }
-            else if (instruction.is_mem_write)
-            {
-                crossReference.type = XrefType::DataWrite;
-            }
-            else
-            {
-                return true; // some other RIP-relative we don't handle
-            }
+                                       if (instruction.isLea)
+                                       {
+                                           dataReference.type = XrefType::DataRef;
+                                       }
+                                       else if (instruction.isMemRead)
+                                       {
+                                           dataReference.type = XrefType::DataRead;
+                                       }
+                                       else if (instruction.isMemWrite)
+                                       {
+                                           dataReference.type = XrefType::DataWrite;
+                                       }
+                                       else
+                                       {
+                                           return true; // some other RIP-relative we don't handle
+                                       }
 
-            references.push_back(crossReference);
-            return true; });
+                                       dataReferences.push_back(dataReference);
+                                       return true;
+                                   });
 
-        return references;
+        return dataReferences;
     }
 
-    std::vector<Global> collect_globals(const std::vector<AnalyzedFunction>& functions)
+    std::vector<Global> CollectGlobals(const std::vector<AnalyzedFunction>& functions)
     {
         // Group xrefs by their target RVA (the address of the global).
         // Using a map keeps the result sorted by RVA, which is nice for
         // determinism and binary search if we need it later.
-        std::map<uint64_t, std::vector<Xref>> by_target;
+        std::map<uint64_t, std::vector<Xref>> referencesByTargetRva;
 
-        for (const auto& func : functions)
+        for (const auto& analyzedFunction : functions)
         {
-            for (const auto& ref : func.data_refs)
+            for (const auto& dataReference : analyzedFunction.dataRefs)
             {
-                by_target[ref.to_rva].push_back(ref);
+                referencesByTargetRva[dataReference.toRva].push_back(dataReference);
             }
         }
 
         // Materialize into Global structs
         std::vector<Global> globals;
-        globals.reserve(by_target.size());
-        for (auto& [rva, refs] : by_target)
+        globals.reserve(referencesByTargetRva.size());
+        for (auto& [globalRva, dataReferences] : referencesByTargetRva)
         {
-            Global g{};
-            g.rva = rva;
-            g.size = 0; // unknown - we don't infer global sizes yet
-            g.refs = std::move(refs);
-            globals.push_back(std::move(g));
+            Global global{};
+            global.rva = globalRva;
+            global.size = 0; // unknown - we don't infer global sizes yet
+            global.refs = std::move(dataReferences);
+            globals.push_back(std::move(global));
         }
 
         return globals;
     }
 
-    uint32_t compute_stack_frame_size_in_body(const symfind::Disassembler& disassembler,
-                                              std::span<const uint8_t> body, uint64_t functionRva)
+    uint32_t ComputeStackFrameSizeInBody(const symfind::Disassembler& disassembler,
+                                         nonstd::span<const uint8_t> functionBytes,
+                                         uint64_t functionRva)
     {
         // The prologue is typically the first few instructions. We scan up to
         // a small limit and take the first `sub rsp, imm` we encounter - that's
         // the stack frame size. Anything beyond the prologue is unrelated.
-        constexpr int kPrologueScanLimit = 16;
+        constexpr int prologueScanLimit = 16;
 
-        uint32_t frameSize = 0;
-        int instructionCounter = 0;
+        uint32_t stackFrameSize = 0;
+        int scannedInstructionCount = 0;
 
-        disassembler.disassemble_cb(body, functionRva, [&](const Instruction& instruction)
-                                    {
-            if (instruction.is_sub_rsp_imm)
-            {
-                frameSize = static_cast<uint32_t>(instruction.imm_value);
-                return false; // stop - found it
-            }
+        disassembler.DisassembleCb(functionBytes, functionRva,
+                                   [&](const Instruction& instruction)
+                                   {
+                                       if (instruction.isSubRspImm)
+                                       {
+                                           stackFrameSize =
+                                               static_cast<uint32_t>(instruction.immValue);
+                                           return false; // stop - found it
+                                       }
 
-            // Stop scanning once we leave the prologue
-            if (++instructionCounter >= kPrologueScanLimit)
-            {
-                return false;
-            }
+                                       // Stop scanning once we leave the prologue
+                                       if (++scannedInstructionCount >= prologueScanLimit)
+                                       {
+                                           return false;
+                                       }
 
-            return true; });
+                                       return true;
+                                   });
 
-        return frameSize;
+        return stackFrameSize;
     }
 
-    bool detect_loops_in_body(const Disassembler& disassembler, std::span<const uint8_t> body,
-                              uint64_t functionRva, uint64_t functionSize)
+    bool DetectLoopsInBody(const Disassembler& disassembler,
+                           nonstd::span<const uint8_t> functionBytes, uint64_t functionRva,
+                           uint64_t functionSize)
     {
-        if (body.empty())
+        if (functionBytes.empty())
         {
             return false;
         }
 
-        const auto func_end = functionRva + functionSize;
+        const auto functionEndRva = functionRva + functionSize;
         bool hasLoop = false;
 
-        disassembler.disassemble_cb(body, functionRva, [&](const Instruction& instruction) -> bool
-                                    {
-            if (!instruction.is_jump)
-            {
-                return true; // not a branch
-            }
+        disassembler.DisassembleCb(functionBytes, functionRva,
+                                   [&](const Instruction& instruction) -> bool
+                                   {
+                                       if (!instruction.isJump)
+                                       {
+                                           return true; // not a branch
+                                       }
 
-            if (instruction.branch_target == 0)
-            {
-                return true; // indirect jump
-            }
+                                       if (instruction.branchTarget == 0)
+                                       {
+                                           return true; // indirect jump
+                                       }
 
-            // Backward jump within the function body = back-edge
-            if (instruction.branch_target < instruction.address &&
-                instruction.branch_target >= functionRva &&
-                instruction.branch_target < func_end)
-            {
-                hasLoop = true;
-                return false; // found one, stop scanning
-            }
-            return true; });
+                                       // Backward jump within the function body = back-edge
+                                       if (instruction.branchTarget < instruction.address &&
+                                           instruction.branchTarget >= functionRva &&
+                                           instruction.branchTarget < functionEndRva)
+                                       {
+                                           hasLoop = true;
+                                           return false; // found one, stop scanning
+                                       }
+                                       return true;
+                                   });
 
         return hasLoop;
     }
 
-    bool detect_loops(const PeModule& module, const Disassembler& disassembler,
-                      uint64_t functionRva, uint64_t functionSize)
+    bool DetectLoops(const PeModule& module, const Disassembler& disassembler, uint64_t functionRva,
+                     uint64_t functionSize)
     {
         if (functionSize == 0)
         {
             return false;
         }
 
-        const auto body = module.read_at(functionRva, functionSize);
-        return detect_loops_in_body(disassembler, body, functionRva, functionSize);
+        const auto functionBytes = module.ReadAt(functionRva, functionSize);
+        return DetectLoopsInBody(disassembler, functionBytes, functionRva, functionSize);
     }
 
-    uint32_t compute_stack_frame_size(const PeModule& module, const Disassembler& disassembler,
-                                      uint64_t functionRva, uint64_t functionSize)
+    uint32_t ComputeStackFrameSize(const PeModule& module, const Disassembler& disassembler,
+                                   uint64_t functionRva, uint64_t functionSize)
     {
         if (functionSize == 0)
         {
             return 0;
         }
 
-        const auto body = module.read_at(functionRva, functionSize);
-        if (body.empty())
+        const auto functionBytes = module.ReadAt(functionRva, functionSize);
+        if (functionBytes.empty())
         {
             return 0;
         }
 
-        return compute_stack_frame_size_in_body(disassembler, body, functionRva);
+        return ComputeStackFrameSizeInBody(disassembler, functionBytes, functionRva);
     }
 
 } // namespace symfind

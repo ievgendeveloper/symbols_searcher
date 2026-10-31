@@ -1,84 +1,82 @@
 #include "symfind/dsl_parser.h"
 #include <gtest/gtest.h>
 
-using namespace symfind::dsl;
-
 TEST(DslParser, MinimalRule)
 {
-    auto rule = DslParser::parse(R"(
+    auto parsedRule = symfind::dsl::DslParser::Parse(R"(
         find function in "ntdll" where
             calls "NtQuerySystemInformation";
     )");
 
-    ASSERT_TRUE(rule.has_value());
-    EXPECT_EQ(rule->target, TargetKind::Function);
-    EXPECT_EQ(rule->module_name, "ntdll");
-    ASSERT_EQ(rule->predicates.size(), 1u);
-    EXPECT_EQ(rule->predicates[0]->kind, PredKind::Calls);
-    EXPECT_EQ(rule->predicates[0]->str_value, "NtQuerySystemInformation");
+    ASSERT_TRUE(parsedRule.has_value());
+    EXPECT_EQ(parsedRule->target, symfind::dsl::TargetKind::Function);
+    EXPECT_EQ(parsedRule->moduleName, "ntdll");
+    ASSERT_EQ(parsedRule->predicates.size(), 1u);
+    EXPECT_EQ(parsedRule->predicates[0]->kind, symfind::dsl::PredKind::Calls);
+    EXPECT_EQ(parsedRule->predicates[0]->strValue, "NtQuerySystemInformation");
 }
 
 TEST(DslParser, FindGlobal)
 {
-    auto rule = DslParser::parse(R"(
+    auto parsedRule = symfind::dsl::DslParser::Parse(R"(
         find global in "ntdll" where
             referenced_by "RtlDecompressBuffer";
             take first;
     )");
 
-    ASSERT_TRUE(rule.has_value());
-    EXPECT_EQ(rule->target, TargetKind::Global);
-    EXPECT_EQ(rule->module_name, "ntdll");
-    ASSERT_EQ(rule->predicates.size(), 2u);
-    EXPECT_EQ(rule->predicates[0]->kind, PredKind::ReferencedBy);
-    EXPECT_EQ(rule->predicates[1]->kind, PredKind::Take);
-    EXPECT_EQ(rule->predicates[1]->int_value, 1);
+    ASSERT_TRUE(parsedRule.has_value());
+    EXPECT_EQ(parsedRule->target, symfind::dsl::TargetKind::Global);
+    EXPECT_EQ(parsedRule->moduleName, "ntdll");
+    ASSERT_EQ(parsedRule->predicates.size(), 2u);
+    EXPECT_EQ(parsedRule->predicates[0]->kind, symfind::dsl::PredKind::ReferencedBy);
+    EXPECT_EQ(parsedRule->predicates[1]->kind, symfind::dsl::PredKind::Take);
+    EXPECT_EQ(parsedRule->predicates[1]->intValue, 1);
 }
 
 TEST(DslParser, NotExported)
 {
-    auto rule = DslParser::parse(R"(
+    auto parsedRule = symfind::dsl::DslParser::Parse(R"(
         find function in "ntdll" where
             called_by "LdrInitializeThunk";
             not exported;
             take first;
     )");
-    ASSERT_TRUE(rule.has_value());
-    ASSERT_EQ(rule->predicates.size(), 3u);
+    ASSERT_TRUE(parsedRule.has_value());
+    ASSERT_EQ(parsedRule->predicates.size(), 3u);
 
-    EXPECT_EQ(rule->predicates[0]->kind, PredKind::CalledBy);
-    EXPECT_EQ(rule->predicates[0]->str_value, "LdrInitializeThunk");
+    EXPECT_EQ(parsedRule->predicates[0]->kind, symfind::dsl::PredKind::CalledBy);
+    EXPECT_EQ(parsedRule->predicates[0]->strValue, "LdrInitializeThunk");
 
     // `not exported` is now parsed as Not(Exported) - composition of two
     // universal rules instead of a dedicated NotExported predicate.
-    EXPECT_EQ(rule->predicates[1]->kind, PredKind::Not);
-    ASSERT_NE(rule->predicates[1]->child, nullptr);
-    EXPECT_EQ(rule->predicates[1]->child->kind, PredKind::Exported);
+    EXPECT_EQ(parsedRule->predicates[1]->kind, symfind::dsl::PredKind::Not);
+    ASSERT_NE(parsedRule->predicates[1]->child, nullptr);
+    EXPECT_EQ(parsedRule->predicates[1]->child->kind, symfind::dsl::PredKind::Exported);
 
-    EXPECT_EQ(rule->predicates[2]->kind, PredKind::Take);
+    EXPECT_EQ(parsedRule->predicates[2]->kind, symfind::dsl::PredKind::Take);
 }
 
 TEST(DslParser, TwoLevelSearch)
 {
-    auto rule = DslParser::parse(R"(
+    auto parsedRule = symfind::dsl::DslParser::Parse(R"(
         find function in "ntdll" where
             called_by "LdrLoadDll";
             not exported;
             calls "RtlGetCurrentServiceSessionId";
     )");
 
-    ASSERT_TRUE(rule.has_value());
-    ASSERT_EQ(rule->predicates.size(), 3u);
-    EXPECT_EQ(rule->predicates[0]->kind, PredKind::CalledBy);
-    EXPECT_EQ(rule->predicates[0]->str_value, "LdrLoadDll");
-    EXPECT_EQ(rule->predicates[1]->kind, PredKind::Not);
-    EXPECT_EQ(rule->predicates[2]->kind, PredKind::Calls);
-    EXPECT_EQ(rule->predicates[2]->str_value, "RtlGetCurrentServiceSessionId");
+    ASSERT_TRUE(parsedRule.has_value());
+    ASSERT_EQ(parsedRule->predicates.size(), 3u);
+    EXPECT_EQ(parsedRule->predicates[0]->kind, symfind::dsl::PredKind::CalledBy);
+    EXPECT_EQ(parsedRule->predicates[0]->strValue, "LdrLoadDll");
+    EXPECT_EQ(parsedRule->predicates[1]->kind, symfind::dsl::PredKind::Not);
+    EXPECT_EQ(parsedRule->predicates[2]->kind, symfind::dsl::PredKind::Calls);
+    EXPECT_EQ(parsedRule->predicates[2]->strValue, "RtlGetCurrentServiceSessionId");
 }
 
 TEST(DslParser, CalledByBlock)
 {
-    auto rule = DslParser::parse(R"(
+    auto parsedRule = symfind::dsl::DslParser::Parse(R"(
         find function in "ntdll" where
             not exported;
             called_by (
@@ -87,57 +85,57 @@ TEST(DslParser, CalledByBlock)
             );
     )");
 
-    ASSERT_TRUE(rule.has_value());
-    ASSERT_EQ(rule->predicates.size(), 2u);
-    EXPECT_EQ(rule->predicates[1]->kind, PredKind::CalledByBlock);
-    ASSERT_EQ(rule->predicates[1]->children.size(), 2u);
-    EXPECT_EQ(rule->predicates[1]->children[0]->kind, PredKind::Calls);
-    EXPECT_EQ(rule->predicates[1]->children[1]->kind, PredKind::HasLoop);
+    ASSERT_TRUE(parsedRule.has_value());
+    ASSERT_EQ(parsedRule->predicates.size(), 2u);
+    EXPECT_EQ(parsedRule->predicates[1]->kind, symfind::dsl::PredKind::CalledByBlock);
+    ASSERT_EQ(parsedRule->predicates[1]->children.size(), 2u);
+    EXPECT_EQ(parsedRule->predicates[1]->children[0]->kind, symfind::dsl::PredKind::Calls);
+    EXPECT_EQ(parsedRule->predicates[1]->children[1]->kind, symfind::dsl::PredKind::HasLoop);
 }
 
 TEST(DslParser, NumericPredicates)
 {
-    auto rule = DslParser::parse(R"(
+    auto parsedRule = symfind::dsl::DslParser::Parse(R"(
         find function in "ntdll" where
             calls_count >= 3;
             stack_frame_size >= 0x80;
             xrefs count == 1;
     )");
 
-    ASSERT_TRUE(rule.has_value());
-    ASSERT_EQ(rule->predicates.size(), 3u);
+    ASSERT_TRUE(parsedRule.has_value());
+    ASSERT_EQ(parsedRule->predicates.size(), 3u);
 
-    EXPECT_EQ(rule->predicates[0]->kind, PredKind::CallsCount);
-    EXPECT_EQ(rule->predicates[0]->cmp_op, CmpOp::Gte);
-    EXPECT_EQ(rule->predicates[0]->int_value, 3);
+    EXPECT_EQ(parsedRule->predicates[0]->kind, symfind::dsl::PredKind::CallsCount);
+    EXPECT_EQ(parsedRule->predicates[0]->cmpOp, symfind::dsl::CmpOp::Gte);
+    EXPECT_EQ(parsedRule->predicates[0]->intValue, 3);
 
-    EXPECT_EQ(rule->predicates[1]->kind, PredKind::StackFrameSize);
-    EXPECT_EQ(rule->predicates[1]->cmp_op, CmpOp::Gte);
-    EXPECT_EQ(rule->predicates[1]->int_value, 0x80);
+    EXPECT_EQ(parsedRule->predicates[1]->kind, symfind::dsl::PredKind::StackFrameSize);
+    EXPECT_EQ(parsedRule->predicates[1]->cmpOp, symfind::dsl::CmpOp::Gte);
+    EXPECT_EQ(parsedRule->predicates[1]->intValue, 0x80);
 
-    EXPECT_EQ(rule->predicates[2]->kind, PredKind::Xrefs);
-    EXPECT_EQ(rule->predicates[2]->cmp_op, CmpOp::Eq);
-    EXPECT_EQ(rule->predicates[2]->int_value, 1);
+    EXPECT_EQ(parsedRule->predicates[2]->kind, symfind::dsl::PredKind::Xrefs);
+    EXPECT_EQ(parsedRule->predicates[2]->cmpOp, symfind::dsl::CmpOp::Eq);
+    EXPECT_EQ(parsedRule->predicates[2]->intValue, 1);
 }
 
 TEST(DslParser, NotPredicate)
 {
-    auto rule = DslParser::parse(R"(
+    auto parsedRule = symfind::dsl::DslParser::Parse(R"(
         find function in "ntdll" where
             not calls "RtlFreeHeap";
     )");
 
-    ASSERT_TRUE(rule.has_value());
-    ASSERT_EQ(rule->predicates.size(), 1u);
-    EXPECT_EQ(rule->predicates[0]->kind, PredKind::Not);
-    ASSERT_NE(rule->predicates[0]->child, nullptr);
-    EXPECT_EQ(rule->predicates[0]->child->kind, PredKind::Calls);
-    EXPECT_EQ(rule->predicates[0]->child->str_value, "RtlFreeHeap");
+    ASSERT_TRUE(parsedRule.has_value());
+    ASSERT_EQ(parsedRule->predicates.size(), 1u);
+    EXPECT_EQ(parsedRule->predicates[0]->kind, symfind::dsl::PredKind::Not);
+    ASSERT_NE(parsedRule->predicates[0]->child, nullptr);
+    EXPECT_EQ(parsedRule->predicates[0]->child->kind, symfind::dsl::PredKind::Calls);
+    EXPECT_EQ(parsedRule->predicates[0]->child->strValue, "RtlFreeHeap");
 }
 
 TEST(DslParser, CommentsIgnored)
 {
-    auto rule = DslParser::parse(R"(
+    auto parsedRule = symfind::dsl::DslParser::Parse(R"(
         # This rule finds LdrpInitialize
         find function in "ntdll" where
             # Must be called from the thunk
@@ -146,35 +144,35 @@ TEST(DslParser, CommentsIgnored)
             take first;
     )");
 
-    ASSERT_TRUE(rule.has_value());
-    EXPECT_EQ(rule->predicates.size(), 3u);
+    ASSERT_TRUE(parsedRule.has_value());
+    EXPECT_EQ(parsedRule->predicates.size(), 3u);
 }
 
 TEST(DslParser, MissingWhere)
 {
-    auto rule = DslParser::parse(R"(
+    auto parsedRule = symfind::dsl::DslParser::Parse(R"(
         find function in "ntdll"
             calls "Something"
     )");
 
-    EXPECT_FALSE(rule.has_value());
+    EXPECT_FALSE(parsedRule.has_value());
 }
 
 TEST(DslParser, MissingModuleName)
 {
-    auto rule = DslParser::parse(R"(
+    auto parsedRule = symfind::dsl::DslParser::Parse(R"(
         find function in where
             calls "Something"
     )");
 
-    EXPECT_FALSE(rule.has_value());
+    EXPECT_FALSE(parsedRule.has_value());
 }
 
 TEST(DslParser, EmptyPredicates)
 {
-    auto rule = DslParser::parse(R"(
+    auto parsedRule = symfind::dsl::DslParser::Parse(R"(
         find function in "ntdll" where
     )");
 
-    EXPECT_FALSE(rule.has_value());
+    EXPECT_FALSE(parsedRule.has_value());
 }

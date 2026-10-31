@@ -9,11 +9,12 @@ add_executable(symfind_tests
     test_stack_frame.cpp
     test_loop_checker.cpp
     test_chained_unwind.cpp
+    test_cpp17_compat.cpp
 )
 
 target_link_libraries(symfind_tests        
     PRIVATE
-        spdlog::spdlog_header_only
+        spdlog::spdlog
         Zydis
         LIEF::LIEF            
         symfind
@@ -30,17 +31,17 @@ if(WIN32)
 endif()
 
 include(GoogleTest)
-gtest_discover_tests(symfind_tests)
+gtest_discover_tests(symfind_tests TEST_LIST symfindTests)
 
 if(WIN32)
-    set(corpus_manifest "${PROJECT_SOURCE_DIR}/pdb_stuff/ntdll_fixtures.json")
-    set(corpus_network_argument)
+    set(corpusManifest "${PROJECT_SOURCE_DIR}/pdb_stuff/ntdll_fixtures.json")
+    set(corpusNetworkArgument)
     if(SYMFIND_AUTO_FETCH_NTDLL)
-        set(corpus_network_argument --allow-network)
+        set(corpusNetworkArgument --allow-network)
     endif()
     add_test(NAME NtdllCorpus.Prepare COMMAND symfind_corpus_manager --prepare-tests
-        --manifest "${corpus_manifest}" --corpus "${SYMFIND_NTDLL_CORPUS_DIR}"
-        ${corpus_network_argument})
+        --manifest "${corpusManifest}" --corpus "${SYMFIND_NTDLL_CORPUS_DIR}"
+        ${corpusNetworkArgument})
     set_tests_properties(NtdllCorpus.Prepare PROPERTIES
         FIXTURES_SETUP ntdll_corpus LABELS corpus TIMEOUT 1800)
 
@@ -53,7 +54,7 @@ if(WIN32)
 
     if(SYMFIND_ENABLE_NETWORK_TESTS)
         add_test(NAME NtdllCorpus.NetworkReproducibility COMMAND symfind_corpus_manager
-            --verify-network --manifest "${corpus_manifest}"
+            --verify-network --manifest "${corpusManifest}"
             --corpus "${SYMFIND_NTDLL_CORPUS_DIR}"
             --checks "${PROJECT_SOURCE_DIR}/pdb_stuff/reproducibility-check" --allow-network)
         set_tests_properties(NtdllCorpus.NetworkReproducibility PROPERTIES
