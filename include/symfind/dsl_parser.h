@@ -38,11 +38,11 @@ namespace symfind::dsl
         CalledByBlock,  ///< called_by ( ... predicates ... )
         ReferencedBy,   ///< referenced_by "X"
         Exported,       ///< exported
-        HasLoop,        ///< has_loop
+        HasLoop,        ///< hasLoop
         Not,            ///< not <predicate>
         CallsCount,     ///< calls_count op N
         Xrefs,          ///< xrefs count op N
-        StackFrameSize, ///< stack_frame_size op N
+        StackFrameSize, ///< stackFrameSize op N
         ReadsReg,       ///< reads_reg "name"
         ArgType,        ///< arg[N] type "T"
         Take,           ///< take first | take N
@@ -55,9 +55,9 @@ namespace symfind::dsl
     {
             PredKind kind;
 
-            std::string str_value;
-            int64_t int_value = 0;
-            CmpOp cmp_op = CmpOp::Eq;
+            std::string strValue;
+            int64_t intValue = 0;
+            CmpOp cmpOp = CmpOp::Eq;
 
             PredicatePtr child;                 ///< for `not`
             std::vector<PredicatePtr> children; ///< for `called_by ( ... )`
@@ -67,7 +67,7 @@ namespace symfind::dsl
     struct Rule
     {
             TargetKind target = TargetKind::Function;
-            std::string module_name;
+            std::string moduleName;
             std::vector<PredicatePtr> predicates;
     };
 
@@ -75,12 +75,12 @@ namespace symfind::dsl
 
     /// State passed to the Lemon parser via %extra_argument.
     /// The grammar action blocks fill in `result`; on syntax error,
-    /// `had_error` is set.
+    /// `hadError` is set.
     struct ParserContext
     {
             Rule result;
-            bool had_error = false;
-            int error_line = 0;
+            bool hadError = false;
+            int errorLine = 0;
     };
 
     // ─── Public parser API ──────────────────────────────
@@ -90,7 +90,7 @@ namespace symfind::dsl
     class DslParser
     {
         public:
-            [[nodiscard]] static std::optional<Rule> parse(std::string_view source);
+            [[nodiscard]] static std::optional<Rule> Parse(std::string_view ruleSource);
     };
 
 } // namespace symfind::dsl

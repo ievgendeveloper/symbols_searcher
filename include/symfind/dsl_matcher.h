@@ -22,36 +22,36 @@ namespace symfind::dsl
     {
         public:
             /// Run a rule and return all matching results.
-            [[nodiscard]] static std::vector<MatchResult> match(const AnalysisDb& db,
-                                                                const Rule& rule);
+            [[nodiscard]] static std::vector<MatchResult> Match(const AnalysisDb& analysisDatabase,
+                                                                const Rule& parsedRule);
 
         private:
             /// Check if a function satisfies all predicates.
-            static bool match_function(const AnalysisDb& db,
-                                       const AnalyzedFunction& func,
-                                       const std::vector<PredicatePtr>& predicates);
+            static bool MatchFunction(const AnalysisDb& analysisDatabase,
+                                      const AnalyzedFunction& candidateFunction,
+                                      const std::vector<PredicatePtr>& predicates);
 
             /// Check if a global satisfies all predicates.
-            static bool match_global(const AnalysisDb& db,
-                                     const Global& global,
-                                     const std::vector<PredicatePtr>& predicates);
+            static bool MatchGlobal(const AnalysisDb& analysisDatabase,
+                                    const Global& candidateGlobal,
+                                    const std::vector<PredicatePtr>& predicates);
 
             /// Evaluate a single predicate against a function.
-            static bool eval_function_pred(const AnalysisDb& db,
-                                           const AnalyzedFunction& func,
-                                           const Predicate& pred);
+            static bool EvalFunctionPred(const AnalysisDb& analysisDatabase,
+                                         const AnalyzedFunction& candidateFunction,
+                                         const Predicate& predicate);
 
             /// Evaluate a single predicate against a global.
-            static bool eval_global_pred(const AnalysisDb& db,
-                                         const Global& global,
-                                         const Predicate& pred);
+            static bool EvalGlobalPred(const AnalysisDb& analysisDatabase,
+                                       const Global& candidateGlobal, const Predicate& predicate);
 
             /// Numeric comparison helper.
-            static bool compare(int64_t lhs, CmpOp op, int64_t rhs);
+            static bool Compare(int64_t actualValue, CmpOp comparisonOperator,
+                                int64_t expectedValue);
 
             /// Apply `take` filtering to results.
-            static void apply_take(std::vector<MatchResult>& results,
-                                   const std::vector<PredicatePtr>& predicates);
+            static void ApplyTake(std::vector<MatchResult>& matchedSymbols,
+                                  const std::vector<PredicatePtr>& predicates);
     };
 
 } // namespace symfind::dsl

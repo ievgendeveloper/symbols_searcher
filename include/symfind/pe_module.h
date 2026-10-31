@@ -2,8 +2,8 @@
 
 #include <cstdint>
 #include <memory>
+#include <nonstd/span.hpp>
 #include <optional>
-#include <span>
 #include <string>
 #include <vector>
 
@@ -19,7 +19,7 @@ namespace symfind
     struct FunctionBounds
     {
             uint64_t rva;
-            uint64_t size;                     ///< Size of the primary contiguous span, not the sum of ranges.
+            uint64_t size; ///< Size of the primary contiguous span, not the sum of ranges.
             std::vector<FunctionRange> ranges; ///< Primary and verified chained-unwind spans.
     };
 
@@ -35,10 +35,10 @@ namespace symfind
     struct Section
     {
             std::string name;
-            uint64_t virtual_address = 0;
-            uint64_t virtual_size = 0;
-            uint64_t raw_offset = 0;
-            uint64_t raw_size = 0;
+            uint64_t virtualAddress = 0;
+            uint64_t virtualSize = 0;
+            uint64_t rawOffset = 0;
+            uint64_t rawSize = 0;
             bool executable = false;
             bool readable = false;
             bool writable = false;
@@ -50,49 +50,54 @@ namespace symfind
     {
         public:
             /// Load from file on disk.
-            [[nodiscard]] static std::optional<PeModule> from_file(const std::string& path);
+            [[nodiscard]] static std::optional<PeModule> FromFile(const std::string& filePath);
 
             /// Load from raw bytes already in memory.
-            [[nodiscard]] static std::optional<PeModule> from_memory(std::span<const uint8_t> data,
-                                                                     uint64_t base_address = 0);
+            [[nodiscard]] static std::optional<PeModule> FromMemory(
+                nonstd::span<const uint8_t> peBytes, uint64_t baseAddress = 0);
 
-            /// Module name (e.g. "ntdll.dll").
-            [[nodiscard]] const std::string& name() const;
+            /// PE export-directory DLL basename (e.g. "ntdll.dll").
+            /// Files without this identity use the input filename; memory-only
+            /// modules without an export-directory name have an empty name.
+            [[nodiscard]] const std::string& Name() const;
 
             /// Image base address.
-            [[nodiscard]] uint64_t image_base() const;
+            [[nodiscard]] uint64_t ImageBase() const;
 
             /// All exports.
-            [[nodiscard]] const std::vector<ExportEntry>& exports() const;
+            [[nodiscard]] const std::vector<ExportEntry>& Exports() const;
 
             /// All sections.
-            [[nodiscard]] const std::vector<Section>& sections() const;
+            [[nodiscard]] const std::vector<Section>& Sections() const;
 
             /// Check if an RVA belongs to an exported symbol.
-            [[nodiscard]] bool is_exported(uint64_t rva) const;
+            [[nodiscard]] bool IsExported(uint64_t symbolRva) const;
 
             /// Look up export by name. Returns RVA or nullopt.
-            [[nodiscard]] std::optional<uint64_t> export_rva(const std::string& name) const;
+            [[nodiscard]] std::optional<uint64_t> ExportRva(const std::string& exportName) const;
 
             /// Read bytes at a given RVA from the mapped image.
-            [[nodiscard]] std::span<const uint8_t> read_at(uint64_t rva, size_t length) const;
+            [[nodiscard]] nonstd::span<const uint8_t> ReadAt(uint64_t startRva,
+                                                             size_t byteCount) const;
 
             /// Get the raw mapped image bytes.
-            [[nodiscard]] std::span<const uint8_t> raw_image() const;
+            [[nodiscard]] nonstd::span<const uint8_t> RawImage() const;
 
             /**
-             * @brief Get the full enumeration of RVA of function addresses and the size of functions
+             * @brief Get the full enumeration of RVA of function addresses and the size of
+             * functions
              * @return the vector of structs with rva of the beginning and size of function
              */
-            [[nodiscard]] const std::vector<FunctionBounds>& exception_functions() const;
+            [[nodiscard]] const std::vector<FunctionBounds>& ExceptionFunctions() const;
 
             /// Canonical procedure entry for an address in a verified code span.
             /// Ranges are end-exclusive; unknown/ambiguous addresses return nullopt.
-            [[nodiscard]] std::optional<uint64_t> canonical_function_rva(uint64_t address) const;
+            [[nodiscard]] std::optional<uint64_t> CanonicalFunctionRva(
+                uint64_t instructionRva) const;
 
         private:
             struct Impl;
-            std::shared_ptr<Impl> impl_;
+            std::shared_ptr<Impl> m_impl;
     };
 
 } // namespace symfind

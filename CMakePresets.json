@@ -1,6 +1,6 @@
 {
     "version": 6,
-    "cmakeMinimumRequired": { "major": 3, "minor": 20, "patch": 0 },
+    "cmakeMinimumRequired": { "major": 3, "minor": 25, "patch": 0 },
     "configurePresets": [
         {
             "name": "debug",
@@ -37,38 +37,45 @@
     "buildPresets": [
         {
             "name": "debug",
-            "configurePreset": "debug"
+            "configurePreset": "debug",
+            "configuration": "Debug"
         },
         {
             "name": "release",
-            "configurePreset": "release"
+            "configurePreset": "release",
+            "configuration": "Release"
         },
         {
             "name": "release-min",
-            "configurePreset": "release-min"
+            "configurePreset": "release-min",
+            "configuration": "MinSizeRel"
         }
     ],
     "testPresets": [
         {
             "name": "debug",
             "configurePreset": "debug",
+            "configuration": "Debug",
             "output": { "outputOnFailure": true },
             "filter": { "exclude": { "label": "network" } }
         },
         {
             "name": "release",
             "configurePreset": "release",
+            "configuration": "Release",
             "output": { "outputOnFailure": true },
             "filter": { "exclude": { "label": "network" } }
         },
         {
             "name": "release-min",
             "configurePreset": "release-min",
+            "configuration": "MinSizeRel",
             "output": { "outputOnFailure": true }
         },
         {
             "name": "network",
             "configurePreset": "debug",
+            "configuration": "Debug",
             "output": { "outputOnFailure": true },
             "filter": { "include": { "label": "network" } },
             "execution": { "noTestsAction": "error" }

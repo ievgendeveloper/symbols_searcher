@@ -1,8 +1,8 @@
 # scripts/build.ps1
 [CmdletBinding()]
 param(
-    [string]$Preset = 'debug',
-    [switch]$NoTest
+    [string]$preset = 'debug',
+    [switch]$noTest
 )
 
 $ErrorActionPreference = 'Stop'
@@ -82,11 +82,11 @@ $vcvarsEscaped = $doubleQuote + $vcvars + $doubleQuote
 
 $commands = @(
     $vcvarsEscaped,
-    ('cmake --preset ' + $Preset),
-    ('cmake --build --preset ' + $Preset)
+    ('cmake --preset ' + $preset),
+    ('cmake --build --preset ' + $preset)
 )
-if (-not $NoTest) {
-    $commands += ('ctest --preset ' + $Preset)
+if (-not $noTest) {
+    $commands += ('ctest --preset ' + $preset)
 }
 
 $cmdLine = $commands -join ' && '

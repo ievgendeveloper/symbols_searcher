@@ -1,6 +1,6 @@
 # symfind
 
-An embeddable C++20 library for locating unexported symbols (functions and globals) inside PE modules on Windows — **without** loading PDB files, even when they are available.
+An embeddable C++17 library for locating unexported symbols (functions and globals) inside PE modules on Windows — **without** loading PDB files, even when they are available.
 
 ## Motivation
 
@@ -60,6 +60,14 @@ find global in "ntdll" where
 
 See [`dsl/examples.sf`](dsl/examples.sf) for more examples.
 
+The module in `in "ntdll"` is checked before matching functions or globals.
+Module basenames compare without ASCII case sensitivity; a bare name can omit
+`.dll`, so `ntdll`, `NTDLL.DLL`, and a path ending in `ntdll.dll` identify the same
+module. Explicit `.exe` and `.sys` extensions remain distinct. File and memory
+loaders use the DLL name recorded in the PE export directory; files without it
+fall back to their filename. A memory image without a module name cannot match
+a named rule. Exported symbol names remain case-sensitive.
+
 ### Current DSL predicates
 
 | Predicate                 | Meaning                                                  |
@@ -96,7 +104,7 @@ candidate alone does not establish that it is the intended symbol.
 - Function discovery from call-target scanning (fallback for functions missing from `.pdata`)
 - Grouping function fragments with verified chained x64 unwind records, including calls and data references in continuations
 - Global variable discovery and cross-reference collection
-- RVA-to-file-offset translation in `PeModule::read_at`
+- RVA-to-file-offset translation in `symfind::PeModule::ReadAt`
 
 ## Checking results against PDB symbols
 
@@ -217,6 +225,13 @@ cmake --build --preset debug --target symfind_tests symfind_corpus_manager
 ctest --preset network
 ```
 
+For a Release network check, configure with the same
+`-DSYMFIND_ENABLE_NETWORK_TESTS=ON` option, build the `release` preset, then run:
+
+```powershell
+ctest --test-dir build/release -C Release -L "^network$" --output-on-failure --no-tests=error
+```
+
 Every run starts empty under `pdb_stuff/reproducibility-check/`, with separate
 archive and corpus directories. It never reads the working corpus or archive
 cache as a fallback and never updates pins. SHA256, PE/RSDS, and PDB identity
@@ -234,7 +249,7 @@ plus ignored `corpus/`, `archives/`, `metadata/`, `reports/`, `diagnostics/`, an
 payloads does not remove the cache. The C++ preparation code and pinned manifest
 remain versioned. Temporary preparation data uses `pdb_stuff/tmp/`.
 
-`symfind_fetch_ntdll` and its offline GoogleTest checks are C++20. HTTP uses CPR
+`symfind_fetch_ntdll` and its offline GoogleTest checks are C++17. HTTP uses CPR
 with Windows Schannel; gzip/tar reading uses zlib. No Python interpreter is needed.
 All utility dependencies are pinned through CMake `FetchContent`. Set
 `SYMFIND_BUILD_PDB_TOOLS=OFF` to omit standalone import/comparison tools; tests
@@ -255,6 +270,34 @@ delta headers. Applying a delta requires the expected output SHA256:
 Winbindex client pins can be refreshed explicitly with `--refresh-winbindex`, or
 offline with `--winbindex-metadata FILE`. The result remains subject to strict
 full-file hashes; a symbol-store lookup returning other bytes is rejected.
+
+## Naming conventions
+
+C++ variables, parameters, data members and namespaces use `camelCase`. Private
+data members use `m_camelCase`. Functions and methods use `PascalCase`,
+as do types and enum values. For example, `AnalysisDb::Analyze` returns an
+`analysisDatabase`, while its private module-name field is `m_moduleName`.
+
+Names fixed by external contracts keep their required spelling: `main`, C++
+operators, third-party APIs, Windows SDK fields, GoogleTest overrides and
+generator-defined names such as `YYCURSOR` and `TK_*`. Macros remain uppercase.
+DSL keywords, JSON keys, command-line options and file paths retain their existing
+syntax; the C++ naming rules do not change these formats.
+
+Function and lambda bodies always span multiple lines. Bodies of `if`, `else`,
+`for`, `while` and `do` statements always use braces, even for one statement.
+The [`.clang-format`](.clang-format) configuration applies these rules and keeps
+lines within 100 columns.
+
+The [`.clang-tidy`](.clang-tidy) configuration checks naming and required braces. With
+Ninja, generate a compilation database and run the check from an MSVC development
+shell after building:
+
+```powershell
+cmake --preset release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+cmake --build --preset release
+clang-tidy -p build/release src/analysis_db.cpp
+```
 
 ## Adding a new DSL predicate
 
@@ -284,9 +327,9 @@ For any new predicate, you need to update these locations:
 2. **`dsl/lexer.re`** — add a regex rule that maps the keyword text to the new `TokenType`.
 3. **`include/symfind/dsl_parser.h`** — add a new value to the `PredKind` enum so the AST can represent the predicate.
 4. **`dsl/grammar.y`** — add a grammar rule that consumes the new tokens and constructs the AST node.
-5. **`src/dsl_driver.cpp`** — add a `case` in `token_type_to_id` mapping the new `TokenType` to the new `TK_*` constant.
-6. **`src/analysis_db.h`** (or `pe_module.h`) — if the predicate needs new data from analysis, add the relevant field to `AnalyzedFunction` or `Global`.
-7. **`src/dsl_matcher.cpp`** — add a `case` in `eval_function_pred` (or `eval_global_pred`) that evaluates the predicate against an `AnalyzedFunction`.
+5. **`src/dsl_driver.cpp`** — add a `case` in `TokenTypeToId` mapping the new `TokenType` to the new `TK_*` constant.
+6. **`include/symfind/analysis_db.h`** (or `pe_module.h`) — if the predicate needs new data from analysis, add the relevant field to `AnalyzedFunction` or `Global`.
+7. **`src/dsl_matcher.cpp`** — add a `case` in `EvalFunctionPred` (or `EvalGlobalPred`) that evaluates the predicate against an `AnalyzedFunction`.
 
 After these changes, run a regular build. CMake re-runs Lemon and re2c automatically because the input files have changed.
 
@@ -305,7 +348,8 @@ find function in "ntdll" where
 In `include/symfind/dsl_lexer.h`:
 
 ```cpp
-enum class TokenType {
+enum class TokenType
+{
     // ... existing entries ...
     HasLoop,
     IsLeaf,            // ← NEW
@@ -321,17 +365,17 @@ The position in the enum doesn't matter, but grouping it near other property pre
 In `dsl/lexer.re`, in the keyword section:
 
 ```
-"has_loop"  { goto kw_has_loop; }
-"is_leaf"   { goto kw_is_leaf; }      // ← NEW
-"take"      { goto kw_take; }
+"has_loop"  { goto kwHasLoop; }
+"is_leaf"   { goto kwIsLeaf; }      // ← NEW
+"take"      { goto kwTake; }
 ```
 
 And add a finalization label at the bottom, next to the others:
 
 ```cpp
-kw_has_loop:  EMIT_KW(HasLoop);
-kw_is_leaf:   EMIT_KW(IsLeaf);        // ← NEW
-kw_take:      EMIT_KW(Take);
+kwHasLoop:  EMIT_KW(HasLoop);
+kwIsLeaf:   EMIT_KW(IsLeaf);        // ← NEW
+kwTake:     EMIT_KW(Take);
 ```
 
 The `EMIT_KW` macro updates the lexer's position state and returns a token with the right `TokenType`. We use a goto here instead of inlining the code into each regex action because re2c rule actions are awkward for non-trivial C++ logic.
@@ -341,7 +385,8 @@ The `EMIT_KW` macro updates the lexer's position state and returns a token with 
 In `include/symfind/dsl_parser.h`:
 
 ```cpp
-enum class PredKind {
+enum class PredKind
+{
     // ... existing entries ...
     HasLoop,
     IsLeaf,            // ← NEW
@@ -355,16 +400,16 @@ enum class PredKind {
 In `dsl/grammar.y`, in the predicate variants section:
 
 ```
-predicate(P) ::= HAS_LOOP. {
-    auto* p = new Predicate;
-    p->kind = PredKind::HasLoop;
-    P.p = p;
+predicate(predicateNode) ::= HAS_LOOP. {
+    auto* predicate = new symfind::dsl::Predicate;
+    predicate->kind = symfind::dsl::PredKind::HasLoop;
+    predicateNode.predicate = predicate;
 }
 
-predicate(P) ::= IS_LEAF. {           // ← NEW
-    auto* p = new Predicate;
-    p->kind = PredKind::IsLeaf;
-    P.p = p;
+predicate(predicateNode) ::= IS_LEAF. {           // ← NEW
+    auto* predicate = new symfind::dsl::Predicate;
+    predicate->kind = symfind::dsl::PredKind::IsLeaf;
+    predicateNode.predicate = predicate;
 }
 ```
 
@@ -372,33 +417,36 @@ The token names use `IS_LEAF` (the `TK_` prefix is added automatically because o
 
 #### 5. Map the token in the driver
 
-In `src/dsl_driver.cpp`, inside `token_type_to_id`:
+In `src/dsl_driver.cpp`, inside `TokenTypeToId`:
 
 ```cpp
-case TokenType::HasLoop:        return TK_HAS_LOOP;
-case TokenType::IsLeaf:         return TK_IS_LEAF;     // ← NEW
-case TokenType::Not:            return TK_NOT;
+case symfind::dsl::TokenType::HasLoop:
+    return TK_HAS_LOOP;
+case symfind::dsl::TokenType::IsLeaf:
+    return TK_IS_LEAF;     // ← NEW
+case symfind::dsl::TokenType::Not:
+    return TK_NOT;
 ```
 
 This is the bridge between the C++ side (which uses the typed enum) and the parser side (which uses raw integer token IDs generated by Lemon).
 
 #### 6. Make sure the data is available
 
-For `is_leaf` we need to know whether a function makes any calls. The `AnalyzedFunction` struct in `include/symfind/analysis_db.h` already has a `call_count` field, so no new data is needed. If we were adding a predicate that requires new information — like `argument_count` — we'd add a field here and populate it in the analysis pass.
+For `is_leaf` we need to know whether a function makes any calls. The `AnalyzedFunction` struct in `include/symfind/analysis_db.h` already has a `callCount` field, so no new data is needed. If we were adding a predicate that requires new information — like `argumentCount` — we'd add a field here and populate it in the analysis pass.
 
 #### 7. Implement the matcher
 
-In `src/dsl_matcher.cpp`, inside `eval_function_pred`:
+In `src/dsl_matcher.cpp`, inside `EvalFunctionPred`:
 
 ```cpp
-case PredKind::HasLoop:
-    return func.has_loop;
+case symfind::dsl::PredKind::HasLoop:
+    return candidateFunction.hasLoop;
 
-case PredKind::IsLeaf:                     // ← NEW
-    return func.call_count == 0;
+case symfind::dsl::PredKind::IsLeaf:                     // ← NEW
+    return candidateFunction.callCount == 0;
 
-case PredKind::Not:
-    return pred.child ? !eval_function_pred(db, func, *pred.child) : true;
+case symfind::dsl::PredKind::Not:
+    return predicate.child ? !EvalFunctionPred(analysisDatabase, candidateFunction, *predicate.child) : true;
 ```
 
 #### 8. Build and test
@@ -420,16 +468,17 @@ CMake notices that `dsl/grammar.y` and `dsl/lexer.re` have changed and re-runs L
 In `tests/test_dsl_matcher.cpp`:
 
 ```cpp
-TEST(DslMatcher, IsLeaf) {
-    auto db = MockAnalysisDb::build_ntdll_mock();
-    auto rule = DslParser::parse(R"(
+TEST(DslMatcher, IsLeaf)
+{
+    auto analysisDatabase = MockAnalysisDb::BuildNtdllMock();
+    auto parsedRule = symfind::dsl::DslParser::Parse(R"(
         find function in "ntdll" where
             is_leaf;
     )");
-    ASSERT_TRUE(rule.has_value());
-    auto results = DslMatcher::match(db, *rule);
+    ASSERT_TRUE(parsedRule.has_value());
+    auto matchedSymbols = symfind::dsl::DslMatcher::Match(analysisDatabase, *parsedRule);
     // Expectations depend on the mock — add functions with
-    // call_count = 0 to verify the matching works as intended.
+    // callCount = 0 to verify the matching works as intended.
 }
 ```
 
@@ -437,8 +486,8 @@ TEST(DslMatcher, IsLeaf) {
 
 The `is_leaf` example is the simplest case — a flag predicate with no arguments. More complex shapes require the same set of changes, but the grammar rule and the matcher case are richer. Existing examples in the codebase to learn from:
 
-- **String operand:** `calls "X"` — see the `Calls` token, `predicate ::= CALLS STRING(S)` rule, and the `PredKind::Calls` case in the matcher.
-- **Numeric comparison:** `calls_count >= 3` — see the `CallsCount` token, the rule `predicate ::= CALLS_COUNT cmp_op(Op) INTEGER(N)`, and how the matcher applies the comparison via the `compare()` helper.
+- **String operand:** `calls "X"` — see the `Calls` token, `predicate ::= CALLS STRING(symbolNameToken)` rule, and the `PredKind::Calls` case in the matcher.
+- **Numeric comparison:** `calls_count >= 3` — see the `CallsCount` token, the rule `predicate ::= CALLS_COUNT cmp_op(comparisonOperator) INTEGER(integerToken)`, and how the matcher applies the comparison via the `Compare()` helper.
 - **Nested block:** `called_by ( ... )` — see how a list of inner predicates is parsed via `pred_list` recursion and stored in the `children` field of the AST node.
 
 For each new predicate, the cleanest approach is to copy the closest existing example and adapt it. The patterns are consistent, and once you've added two or three predicates the workflow becomes mechanical.
@@ -449,7 +498,7 @@ A few things that have bitten us in the past, worth watching out for:
 
 **Forgetting the semicolon in test rules.** Every predicate in a DSL rule, including those inside `called_by ( ... )` blocks, must end with `;`. The grammar requires it as a terminator.
 
-**Adding a `TokenType` but forgetting the `token_type_to_id` mapping.** The lexer will produce the new token, but the driver won't translate it for Lemon. Result: the parser sees an unexpected token and errors out. Always verify that step 5 is done.
+**Adding a `TokenType` but forgetting the `TokenTypeToId` mapping.** The lexer will produce the new token, but the driver won't translate it for Lemon. Result: the parser sees an unexpected token and errors out. Always verify that step 5 is done.
 
 **Returning a token ID for a `TK_*` constant that Lemon hasn't generated.** Lemon only generates `TK_*` constants for tokens *actually used in the grammar*. If you add `TokenType::Foo` and map it to `TK_FOO` in the driver, but never reference `FOO` in any grammar rule, the build fails because `TK_FOO` is undefined. Either use the token in the grammar or omit it from the mapping.
 
@@ -459,9 +508,11 @@ A few things that have bitten us in the past, worth watching out for:
  
 ### General
  
-- CMake 3.20 or newer
-- C++20-capable compiler (MSVC 2022, clang 15+, gcc 11+)
+- CMake 3.25 or newer (LIEF requires at least 3.24; preset schema 6 requires 3.25)
+- C++17-capable compiler (MSVC 2022, clang 15+, gcc 11+)
 All C++ library dependencies (Zydis, LIEF, spdlog, GoogleTest) are fetched automatically via `FetchContent` — no manual installation needed.
+
+MSVC builds use the static CRT (`/MTd` in Debug, `/MT` otherwise), asynchronous exception handling (`/EHa`), disabled RTTI (`/GR-`), and UTF-8 source encoding. Windows targets define `UNICODE` and `_UNICODE`; non-Debug images store only the PDB basename in their debug directory.
  
 ### Code generation tools (Windows)
  
@@ -528,14 +579,27 @@ Presets available:
 | Library     | Purpose                          | Version  |
 |-------------|----------------------------------|----------|
 | Zydis       | x86/x64 disassembly              | 4.1.0    |
-| LIEF        | PE parsing (only PE enabled)     | 0.17.6   |
-| spdlog      | logging                          | 1.15.0   |
+| [LIEF](https://github.com/lief-project/LIEF/releases/tag/1.0.0) | PE parsing with its required COFF backend | 1.0.0 |
+| spdlog      | shared logging dependency for symfind and LIEF | 1.17.0 |
 | GoogleTest  | tests (optional)                 | 1.15.2   |
+| [tl_expected](https://github.com/TartanLlama/expected/tree/v1.3.1) | C++17-compatible `tl::expected` | 1.3.1 |
+| [span-lite](https://github.com/martinmoene/span-lite/tree/v0.11.0) | C++17-compatible `nonstd::span` byte views | 0.11.0 |
 | [CPR](https://github.com/libcpr/cpr/tree/1.11.2) | PDB tool HTTP downloads | 1.11.2 |
 | [nlohmann/json](https://github.com/nlohmann/json/tree/v3.11.3) | Fixture manifests | 3.11.3 |
 | [zlib](https://github.com/madler/zlib/tree/v1.3.1) | PDB tool gzip/archive reading | 1.3.1 |
 
-LIEF is configured to build **only** the PE backend (ELF, Mach-O, DEX, OAT, ART are disabled) to keep the library lean.
+LIEF is pinned to release tag `1.0.0`. PE and its required COFF backend are
+enabled; other binary-format backends, Runtime API, bindings, and examples are
+disabled. LIEF shares the project's pinned `tl::expected` version. Configuration
+rejects a source override or disconnected cache that still provides an older
+LIEF version. Both libraries also use the same compiled spdlog target to keep
+logging types and the registry consistent.
+
+The library, examples, fixture tools, and tests compile as C++17. Public byte
+views use `nonstd::span`; formatting uses the fmt implementation supplied by
+spdlog. `tl::expected` is available through the public CMake dependencies; include
+`<tl/expected.hpp>` when using it. Existing optional-returning APIs retain their
+return types.
 
 ## Target platforms
 
@@ -543,4 +607,4 @@ Primary focus is Windows x64 PE modules. The core architecture (PE loader, Zydis
 
 ## License
 
-TBD.
+MIT. See [LICENSE](LICENSE). Third-party components retain their own licenses.
